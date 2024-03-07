@@ -74,6 +74,7 @@ jobs:
   release-objectstorage:
     needs:
       - save-sealos
+      - release-cloud
     uses: ./.github/workflows/objectstorage.yaml
     with:
       push_image: true
