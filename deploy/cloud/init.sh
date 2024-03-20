@@ -41,6 +41,7 @@ retryPullImage ghcr.io/gclm/sealos-cloud-license-frontend:latest
 retryPullImage ghcr.io/gclm/sealos-cloud-cronjob-frontend:latest
 
 retryPullImage ghcr.io/gclm/sealos-cloud-database-service:latest
+retryPullImage ghcr.io/gclm/sealos-cloud-account-service:latest
 retryPullImage ghcr.io/gclm/sealos-cloud-job-init-controller:latest
 retryPullImage ghcr.io/gclm/sealos-cloud-job-heartbeat-controller:latest
 
@@ -61,5 +62,6 @@ sealos save -o tars/frontend-license.tar ghcr.io/gclm/sealos-cloud-license-front
 sealos save -o tars/frontend-cronjob.tar ghcr.io/gclm/sealos-cloud-cronjob-frontend:latest
 
 sealos save -o tars/database-service.tar ghcr.io/gclm/sealos-cloud-database-service:latest
+sealos save -o tars/account-service.tar ghcr.io/gclm/sealos-cloud-account-service:latest
 sealos save -o tars/job-init.tar ghcr.io/gclm/sealos-cloud-job-init-controller:latest
 sealos save -o tars/job-heartbeat.tar ghcr.io/gclm/sealos-cloud-job-heartbeat-controller:latest
