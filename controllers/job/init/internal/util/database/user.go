@@ -67,14 +67,22 @@ func PresetAdminUser() error {
 		Domain:      domain,
 		DisplayName: domain,
 		Location:    domain,
+		Description: types.RegionDescriptionJSON(types.RegionDescription{
+			Provider: domain + "-local",
+			Serial:   "A",
+			Description: map[string]string{
+				"zh": domain + "-本地",
+				"en": domain + "-local",
+			},
+		}),
 	}); err != nil {
 		return fmt.Errorf("failed to create region: %v", err)
 	}
-
 	userNanoID, err := gonanoid.New(10)
 	if err != nil {
 		return fmt.Errorf("failed to generate nano id: %v", err)
 	}
+	genUserCrUID, genWorkspaceUID := uuid.New(), uuid.New()
 	if err = v2Account.CreateUser(&types.OauthProvider{
 		UserUID:      common.AdminUID(),
 		ProviderType: types.OauthProviderTypePassword,
@@ -83,6 +91,7 @@ func PresetAdminUser() error {
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}, &types.RegionUserCr{
+		UID:       genUserCrUID,
 		CrName:    adminUserName,
 		UserUID:   common.AdminUID(),
 		CreatedAt: time.Now(),
@@ -90,10 +99,25 @@ func PresetAdminUser() error {
 	}, &types.User{
 		UID:       common.AdminUID(),
 		ID:        userNanoID,
-		Name:      adminUserName,
-		Nickname:  userNanoID,
+		Name:      userNanoID,
+		Nickname:  adminUserName,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+	}, &types.Workspace{
+		UID:         genWorkspaceUID,
+		ID:          workspacePrefix + adminUserName,
+		DisplayName: "private team",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}, &types.UserWorkspace{
+		WorkspaceUID: genWorkspaceUID,
+		UserCrUID:    genUserCrUID,
+		Role:         types.RoleOwner,
+		Status:       types.JoinStatusInWorkspace,
+		IsPrivate:    true,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+		JoinAt:       time.Now(),
 	}); err != nil {
 		return fmt.Errorf("failed to create user: %v", err)
 	}
