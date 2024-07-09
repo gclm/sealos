@@ -191,6 +191,9 @@ function sealos_run_controller {
   # run app controller
   sealos run tars/app.tar
 
+  # kubectl apply default desktop apps
+  retry_kubectl_apply "manifests/default_apps.yaml"
+
   # run resources monitoring controller
   sealos run tars/monitoring.tar \
   --env MONGO_URI="$mongodbUri" --env DEFAULT_NAMESPACE="resources-system"
