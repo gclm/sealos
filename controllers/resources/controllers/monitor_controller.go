@@ -25,6 +25,12 @@ import (
 	"sync"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	appv1 "github.com/labring/sealos/controllers/app/api/v1"
+
+	kbv1alpha1 "github.com/apecloud/kubeblocks/apis/dataprotection/v1alpha1"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/labring/sealos/controllers/pkg/utils/env"
@@ -104,11 +110,12 @@ const (
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=resourcequotas,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=resourcequotas/status,verbs=get;list;watch
-//+kubebuilder:rbac:groups=infra.sealos.io,resources=infras,verbs=get;list;watch
-//+kubebuilder:rbac:groups=infra.sealos.io,resources=infras/status,verbs=get;list;watch
-//+kubebuilder:rbac:groups=infra.sealos.io,resources=infras/finalizers,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=services/status,verbs=get;list;watch
+//+kubebuilder:rbac:groups=app.sealos.io,resources=instances,verbs=get;list;watch
+//+kubebuilder:rbac:groups=app.sealos.io,resources=instances/status,verbs=get;list;watch
+//+kubebuilder:rbac:groups=dataprotection.apecloud.io,resources=backups,verbs=get;list;watch
+//+kubebuilder:rbac:groups=dataprotection.apecloud.io,resources=backups/status,verbs=get;list;watch
 
 func NewMonitorReconciler(mgr ctrl.Manager) (*MonitorReconciler, error) {
 	r := &MonitorReconciler{
@@ -140,6 +147,12 @@ func InitIndexField(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.PersistentVolumeClaim{}, "status.phase", func(rawObj client.Object) []string {
 		pvc := rawObj.(*corev1.PersistentVolumeClaim)
 		return []string{string(pvc.Status.Phase)}
+	}); err != nil {
+		return err
+	}
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kbv1alpha1.Backup{}, "status.phase", func(rawObj client.Object) []string {
+		backup := rawObj.(*kbv1alpha1.Backup)
+		return []string{string(backup.Status.Phase)}
 	}); err != nil {
 		return err
 	}
@@ -299,12 +312,15 @@ func (r *MonitorReconciler) monitorResourceUsage(namespace *corev1.Namespace) er
 	timeStamp := time.Now().UTC()
 	resUsed := map[string]map[corev1.ResourceName]*quantity{}
 	resNamed := make(map[string]*resources.ResourceNamed)
-
-	if err := r.monitorPodResourceUsage(namespace.Name, resUsed, resNamed); err != nil {
+	instances, err := r.getInstances(namespace.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get instances: %v", err)
+	}
+	if err := r.monitorPodResourceUsage(namespace.Name, resUsed, resNamed, instances); err != nil {
 		return fmt.Errorf("failed to monitor pod resource usage: %v", err)
 	}
 
-	if err := r.monitorPVCResourceUsage(namespace.Name, resUsed, resNamed); err != nil {
+	if err := r.monitorPVCResourceUsage(namespace.Name, resUsed, resNamed, instances); err != nil {
 		return fmt.Errorf("failed to monitor PVC resource usage: %v", err)
 	}
 
@@ -312,7 +328,7 @@ func (r *MonitorReconciler) monitorResourceUsage(namespace *corev1.Namespace) er
 		return fmt.Errorf("failed to monitor backup resource usage: %v", err)
 	}
 
-	if err := r.monitorServiceResourceUsage(namespace.Name, resUsed, resNamed); err != nil {
+	if err := r.monitorServiceResourceUsage(namespace.Name, resUsed, resNamed, instances); err != nil {
 		return fmt.Errorf("failed to monitor service resource usage: %v", err)
 	}
 
@@ -328,17 +344,36 @@ func (r *MonitorReconciler) monitorResourceUsage(namespace *corev1.Namespace) er
 			continue
 		}
 		monitors = append(monitors, &resources.Monitor{
-			Category: namespace.Name,
-			Used:     used,
-			Time:     timeStamp,
-			Type:     resNamed[name].Type(),
-			Name:     resNamed[name].Name(),
+			Category:   namespace.Name,
+			Used:       used,
+			Time:       timeStamp,
+			Type:       resNamed[name].Type(),
+			Name:       resNamed[name].Name(),
+			ParentType: resNamed[name].ParentType(),
+			ParentName: resNamed[name].ParentName(),
 		})
 	}
 	return r.DBClient.InsertMonitor(context.Background(), monitors...)
 }
 
-func (r *MonitorReconciler) monitorPodResourceUsage(namespace string, resUsed map[string]map[corev1.ResourceName]*quantity, resNamed map[string]*resources.ResourceNamed) error {
+func (r *MonitorReconciler) getInstances(namespace string) (map[string]struct{}, error) {
+	instances := make(map[string]struct{})
+	insList := metav1.PartialObjectMetadataList{}
+	insList.SetGroupVersionKind(appv1.GroupVersion.WithKind("InstanceList"))
+	if err := r.List(context.Background(), &insList, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("failed to list instances: %v", err)
+	}
+	for i := range insList.Items {
+		name := insList.Items[i].Labels[resources.AppStoreDeployLabelKey]
+		if name == "" {
+			name = insList.Items[i].Name
+		}
+		instances[name] = struct{}{}
+	}
+	return instances, nil
+}
+
+func (r *MonitorReconciler) monitorPodResourceUsage(namespace string, resUsed map[string]map[corev1.ResourceName]*quantity, resNamed map[string]*resources.ResourceNamed, instances map[string]struct{}) error {
 	podList := &corev1.PodList{}
 	if err := r.List(context.Background(), podList, &client.ListOptions{
 		Namespace: namespace,
@@ -352,6 +387,7 @@ func (r *MonitorReconciler) monitorPodResourceUsage(namespace string, resUsed ma
 			continue
 		}
 		podResNamed := resources.NewResourceNamed(pod)
+		podResNamed.SetInstanceParent(instances)
 		resNamed[podResNamed.String()] = podResNamed
 		if resUsed[podResNamed.String()] == nil {
 			resUsed[podResNamed.String()] = initResources()
@@ -383,7 +419,7 @@ func (r *MonitorReconciler) monitorPodResourceUsage(namespace string, resUsed ma
 	return nil
 }
 
-func (r *MonitorReconciler) monitorPVCResourceUsage(namespace string, resUsed map[string]map[corev1.ResourceName]*quantity, resNamed map[string]*resources.ResourceNamed) error {
+func (r *MonitorReconciler) monitorPVCResourceUsage(namespace string, resUsed map[string]map[corev1.ResourceName]*quantity, resNamed map[string]*resources.ResourceNamed, instances map[string]struct{}) error {
 	pvcList := &corev1.PersistentVolumeClaimList{}
 	if err := r.List(context.Background(), pvcList, &client.ListOptions{
 		Namespace:     namespace,
@@ -397,6 +433,7 @@ func (r *MonitorReconciler) monitorPVCResourceUsage(namespace string, resUsed ma
 			continue
 		}
 		pvcRes := resources.NewResourceNamed(pvc)
+		pvcRes.SetInstanceParent(instances)
 		if resUsed[pvcRes.String()] == nil {
 			resNamed[pvcRes.String()] = pvcRes
 			resUsed[pvcRes.String()] = initResources()
@@ -407,24 +444,31 @@ func (r *MonitorReconciler) monitorPVCResourceUsage(namespace string, resUsed ma
 }
 
 func (r *MonitorReconciler) monitorDatabaseBackupUsage(namespace string, resUsed map[string]map[corev1.ResourceName]*quantity, resNamed map[string]*resources.ResourceNamed) error {
-	if r.ObjStorageUserBackupSize == nil {
+	backupList := &kbv1alpha1.BackupList{}
+	if err := r.List(context.Background(), backupList, &client.ListOptions{
+		Namespace:     namespace,
+		FieldSelector: fields.OneTermEqualSelector("status.phase", string(kbv1alpha1.BackupPhaseCompleted)),
+	}); err != nil {
+		return fmt.Errorf("failed to list backup: %v", err)
+	}
+	if len(backupList.Items) == 0 {
 		return nil
 	}
-	backupSize := r.ObjStorageUserBackupSize[getBackupObjectStorageName(namespace)]
-	if backupSize <= 0 {
-		return nil
+	for i := range backupList.Items {
+		backup := &backupList.Items[i]
+		backupRes := resources.NewResourceNamed(backup)
+		fmt.Printf("backup name: %v, backup size: %v, backupRes: %s \n", backupList.Items[i].Name, backupList.Items[i].Status.TotalSize, backupRes.String())
+		if resUsed[backupRes.String()] == nil {
+			resNamed[backupRes.String()] = backupRes
+			resUsed[backupRes.String()] = initResources()
+		}
+		resUsed[backupRes.String()][corev1.ResourceStorage].Add(resource.MustParse(backup.Status.TotalSize))
 	}
-
-	backupRes := resources.NewObjStorageResourceNamed("DB-BACKUP")
-	if resUsed[backupRes.String()] == nil {
-		resNamed[backupRes.String()] = backupRes
-		resUsed[backupRes.String()] = initResources()
-	}
-	resUsed[backupRes.String()][corev1.ResourceStorage].Add(*resource.NewQuantity(backupSize, resource.BinarySI))
 	return nil
 }
 
-func (r *MonitorReconciler) monitorServiceResourceUsage(namespace string, resUsed map[string]map[corev1.ResourceName]*quantity, resNamed map[string]*resources.ResourceNamed) error {
+// instance is the app instance name
+func (r *MonitorReconciler) monitorServiceResourceUsage(namespace string, resUsed map[string]map[corev1.ResourceName]*quantity, resNamed map[string]*resources.ResourceNamed, instances map[string]struct{}) error {
 	svcList := &corev1.ServiceList{}
 	if err := r.List(context.Background(), svcList, &client.ListOptions{
 		Namespace:     namespace,
@@ -442,6 +486,7 @@ func (r *MonitorReconciler) monitorServiceResourceUsage(namespace string, resUse
 			port[svcPort.NodePort] = struct{}{}
 		}
 		svcRes := resources.NewResourceNamed(svc)
+		svcRes.SetInstanceParent(instances)
 		if resUsed[svcRes.String()] == nil {
 			resNamed[svcRes.String()] = svcRes
 			resUsed[svcRes.String()] = initResources()
@@ -450,10 +495,6 @@ func (r *MonitorReconciler) monitorServiceResourceUsage(namespace string, resUse
 		resUsed[svcRes.String()][corev1.ResourceServicesNodePorts].Add(*resource.NewQuantity(int64(1000*len(port)), resource.BinarySI))
 	}
 	return nil
-}
-
-func getBackupObjectStorageName(namespace string) string {
-	return strings.TrimPrefix(namespace, "ns-")
 }
 
 func (r *MonitorReconciler) getResourceUsed(podResource map[corev1.ResourceName]*quantity) (bool, map[uint8]int64) {
@@ -534,11 +575,12 @@ func (r *MonitorReconciler) handlerObjectStorageTrafficUsed(startTime, endTime t
 	if err != nil {
 		return fmt.Errorf("failed to get object storage flow: %w", err)
 	}
-	unit := r.Properties.StringMap[resources.ResourceNetwork].Unit
-	used := int64(math.Ceil(float64(resource.NewQuantity(bytes, resource.BinarySI).MilliValue()) / float64(unit.MilliValue())))
-	if used <= 0 {
+	// Because the obtained traffic includes traffic communicating with the controller, filter out traffic smaller than 1 MB
+	if bytes < 1024*1024 {
 		return nil
 	}
+	unit := r.Properties.StringMap[resources.ResourceNetwork].Unit
+	used := int64(math.Ceil(float64(resource.NewQuantity(bytes, resource.BinarySI).MilliValue()) / float64(unit.MilliValue())))
 
 	namespace := "ns-" + strings.SplitN(bucket, "-", 2)[0]
 	ro := resources.Monitor{
