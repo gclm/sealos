@@ -13,7 +13,6 @@ import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createMasterAPP, masterApp } from 'sealos-desktop-sdk/master';
 import Cost from '../account/cost';
-import TriggerAccountModule from '../account/trigger';
 import { ChakraIndicator } from './ChakraIndicator';
 import Apps from './apps';
 import Assistant from './assistant';
@@ -31,6 +30,7 @@ import { UserInfo } from '@/api/auth';
 const AppDock = dynamic(() => import('../AppDock'), { ssr: false });
 const FloatButton = dynamic(() => import('@/components/floating_button'), { ssr: false });
 const Account = dynamic(() => import('../account'), { ssr: false });
+const TriggerAccountModule = dynamic(() => import('../account/trigger'), { ssr: false });
 
 export const blurBackgroundStyles = {
   bg: 'rgba(22, 30, 40, 0.35)',
@@ -118,8 +118,6 @@ export default function Desktop(props: any) {
   useEffect(() => {
     if (infoData.isSuccess && !infoData?.data?.realName && commonConfig?.realNameAuthEnabled) {
       realNameAuthNotificationIdRef.current = realNameAuthNotification({
-        title: '国内可用区需要实名认证，未实名认证将会被限制使用，点击进行实名',
-        status: 'error',
         duration: null,
         isClosable: true
       });

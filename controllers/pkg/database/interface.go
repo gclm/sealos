@@ -36,6 +36,7 @@ type Interface interface {
 	Account
 	Traffic
 	CVM
+	Creator
 }
 
 type CVM interface {
@@ -49,6 +50,10 @@ type Account interface {
 	GetBillingHistoryNamespaceList(ns *accountv1.NamespaceBillingHistorySpec, owner string) ([]string, error)
 	GetBillingHistoryNamespaces(startTime, endTime *time.Time, billType int, owner string) ([]string, error)
 	SaveBillings(billing ...*resources.Billing) error
+	SaveObjTraffic(obs ...*types.ObjectStorageTraffic) error
+	GetAllLatestObjTraffic(startTime, endTime time.Time) ([]types.ObjectStorageTraffic, error)
+	HandlerTimeObjBucketSentTraffic(startTime, endTime time.Time, bucket string) (int64, error)
+	GetTimeObjBucketBucket(startTime, endTime time.Time) ([]string, error)
 	QueryBillingRecords(billingRecordQuery *accountv1.BillingRecordQuery, owner string) error
 	GetUnsettingBillingHandler(owner string) ([]resources.BillingHandler, error)
 	UpdateBillingStatus(orderID string, status resources.BillingStatus) error
@@ -103,6 +108,7 @@ type AccountV2 interface {
 	NewAccount(user *types.UserQueryOpts) (*types.Account, error)
 	Payment(payment *types.Payment) error
 	SavePayment(payment *types.Payment) error
+	GetUnInvoicedPaymentListWithIds(ids []string) ([]types.Payment, error)
 	CreateErrorPaymentCreate(payment types.Payment, errorMsg string) error
 	CreateAccount(ops *types.UserQueryOpts, account *types.Account) (*types.Account, error)
 	CreateErrorAccountCreate(account *types.Account, owner, errorMsg string) error
@@ -117,6 +123,7 @@ type Creator interface {
 	CreateBillingIfNotExist() error
 	//suffix by day, eg： monitor_20200101
 	CreateMonitorTimeSeriesIfNotExist(collTime time.Time) error
+	CreateTTLTrafficTimeSeries() error
 }
 
 type MeteringOwnerTimeResult struct {

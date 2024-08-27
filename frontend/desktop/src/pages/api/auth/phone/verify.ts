@@ -11,9 +11,9 @@ export default ErrorHandler(async function handler(req: NextApiRequest, res: Nex
   await filterPhoneVerifyParams(
     req,
     res,
-    async ({ phoneNumbers, code, inviterId, userSemChannel }) => {
+    async ({ phoneNumbers, code, inviterId, semData, bdVid }) => {
       await verifyPhoneCodeGuard(phoneNumbers, code)(res, async ({ smsInfo: phoneInfo }) => {
-        await getGlobalTokenByPhoneSvc(phoneInfo.id, inviterId, userSemChannel)(res);
+        await getGlobalTokenByPhoneSvc(phoneInfo.id, inviterId, semData, bdVid)(res);
       });
     }
   );

@@ -15,7 +15,7 @@ export default ErrorHandler(async function handler(req: NextApiRequest, res: Nex
   await OauthCodeFilter(
     req,
     res,
-    async ({ code, inviterId, userSemChannel }) =>
+    async ({ code, inviterId, semData, bdVid }) =>
       await googleOAuthEnvFilter()(async ({ clientID, clientSecret, callbackURL }) => {
         await googleOAuthGuard(
           clientID,
@@ -30,7 +30,8 @@ export default ErrorHandler(async function handler(req: NextApiRequest, res: Nex
             id,
             name,
             inviterId,
-            userSemChannel
+            semData,
+            bdVid
           )(res);
         });
       })

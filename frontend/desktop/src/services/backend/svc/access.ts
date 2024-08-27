@@ -3,6 +3,7 @@ import { jsonRes } from '../response';
 import { ProviderType } from 'prisma/global/generated/client';
 import { getGlobalToken } from '../globalAuth';
 import { use } from 'react';
+import { SemData } from '@/types/sem';
 
 export const getGlobalTokenSvc =
   (
@@ -12,7 +13,8 @@ export const getGlobalTokenSvc =
     providerType: ProviderType,
     password?: string,
     inviterId?: string,
-    userSemChannel?: string
+    semData?: SemData,
+    bdVid?: string
   ) =>
   async (res: NextApiResponse, next?: () => void) => {
     const data = await getGlobalToken({
@@ -22,7 +24,8 @@ export const getGlobalTokenSvc =
       name,
       inviterId,
       password,
-      userSemChannel
+      semData,
+      bdVid
     });
     if (!data)
       return jsonRes(res, {
@@ -41,7 +44,8 @@ export const getGlobalTokenByGithubSvc = (
   providerId: string,
   name: string,
   inviterId?: string,
-  userSemChannel?: string
+  semData?: SemData,
+  bdVid?: string
 ) =>
   getGlobalTokenSvc(
     avatar_url,
@@ -50,14 +54,16 @@ export const getGlobalTokenByGithubSvc = (
     ProviderType.GITHUB,
     undefined,
     inviterId,
-    userSemChannel
+    semData,
+    bdVid
   );
 export const getGlobalTokenByWechatSvc = (
   avatar_url: string,
   providerId: string,
   name: string,
   inviterId?: string,
-  userSemChannel?: string
+  semData?: SemData,
+  bdVid?: string
 ) =>
   getGlobalTokenSvc(
     avatar_url,
@@ -66,13 +72,15 @@ export const getGlobalTokenByWechatSvc = (
     ProviderType.WECHAT,
     undefined,
     inviterId,
-    userSemChannel
+    semData,
+    bdVid
   );
 export const getGlobalTokenByPhoneSvc = (
   phone: string,
   inviterId?: string,
-  userSemChannel?: string
-) => getGlobalTokenSvc('', phone, phone, ProviderType.PHONE, undefined, inviterId, userSemChannel);
+  semData?: SemData,
+  bdVid?: string
+) => getGlobalTokenSvc('', phone, phone, ProviderType.PHONE, undefined, inviterId, semData, bdVid);
 export const getGlobalTokenByPasswordSvc = (name: string, password: string, inviterId?: string) =>
   getGlobalTokenSvc('', name, name, ProviderType.PASSWORD, password, inviterId);
 export const getGlobalTokenByGoogleSvc = (
@@ -80,7 +88,8 @@ export const getGlobalTokenByGoogleSvc = (
   providerId: string,
   name: string,
   inviterId?: string,
-  userSemChannel?: string
+  semData?: SemData,
+  bdVid?: string
 ) =>
   getGlobalTokenSvc(
     avatar_url,
@@ -89,5 +98,6 @@ export const getGlobalTokenByGoogleSvc = (
     ProviderType.GOOGLE,
     undefined,
     inviterId,
-    userSemChannel
+    semData,
+    bdVid
   );
