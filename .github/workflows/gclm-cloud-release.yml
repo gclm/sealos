@@ -32,9 +32,6 @@ env:
   DEFAULT_OWNER: "labring"
 
 jobs:
-  save-sealos:
-    uses: ./.github/workflows/import-save-sealos.yml
-
   release-controllers:
     uses: ./.github/workflows/controllers.yml
     with:
@@ -50,13 +47,14 @@ jobs:
     secrets: inherit
 
   release-service:
-    needs:
-      - save-sealos
     uses: ./.github/workflows/services.yml
     with:
       push_image: true
       push_image_tag: ${{ inputs.push_image_tag }}
     secrets: inherit
+
+  save-sealos:
+    uses: ./.github/workflows/import-save-sealos.yml
 
   release-cloud:
     needs:
