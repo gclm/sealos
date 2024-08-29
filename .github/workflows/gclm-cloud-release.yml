@@ -32,6 +32,13 @@ env:
   DEFAULT_OWNER: "labring"
 
 jobs:
+  release-service:
+    uses: ./.github/workflows/services.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.push_image_tag }}
+    secrets: inherit
+    
   release-controllers:
     uses: ./.github/workflows/controllers.yml
     with:
@@ -41,13 +48,6 @@ jobs:
 
   release-frontends:
     uses: ./.github/workflows/frontend.yml
-    with:
-      push_image: true
-      push_image_tag: ${{ inputs.push_image_tag }}
-    secrets: inherit
-
-  release-service:
-    uses: ./.github/workflows/services.yml
     with:
       push_image: true
       push_image_tag: ${{ inputs.push_image_tag }}
