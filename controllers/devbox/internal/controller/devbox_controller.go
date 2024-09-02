@@ -32,11 +32,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 const (
@@ -58,10 +62,22 @@ type DevboxReconciler struct {
 // +kubebuilder:rbac:groups=devbox.sealos.io,resources=devboxes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=devbox.sealos.io,resources=devboxes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=devbox.sealos.io,resources=devboxes/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=pods,verbs=*
+// +kubebuilder:rbac:groups="",resources=pods/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=*
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=*
+// +kubebuilder:rbac:groups="",resources=events,verbs=*
 
 func (r *DevboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx, "devbox", req.NamespacedName)
 	devbox := &devboxv1alpha1.Devbox{}
+
+	recLabels := label.RecommendedLabels(&label.Recommended{
+		Name:      devbox.Name,
+		ManagedBy: label.DefaultManagedBy,
+		PartOf:    DevBoxPartOf,
+	})
+
 	if err := r.Get(ctx, req.NamespacedName, devbox); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -72,10 +88,12 @@ func (r *DevboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			}
 		}
 	} else {
-		if devbox.Spec.State == devboxv1alpha1.DevboxStateRunning {
-			devbox.Spec.State = devboxv1alpha1.DevboxStateStopped
-			return ctrl.Result{}, r.Update(ctx, devbox)
+		logger.Info("devbox deleted, remove all resources")
+		if err := r.removeAll(ctx, devbox, recLabels); err != nil {
+			return ctrl.Result{}, err
 		}
+
+		logger.Info("devbox deleted, remove finalizer")
 		if controllerutil.RemoveFinalizer(devbox, FinalizerName) {
 			if err := r.Update(ctx, devbox); err != nil {
 				return ctrl.Result{}, err
@@ -86,20 +104,20 @@ func (r *DevboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	devbox.Status.Network.Type = devbox.Spec.NetworkSpec.Type
 	_ = r.Status().Update(ctx, devbox)
 
-	recLabels := label.RecommendedLabels(&label.Recommended{
-		Name:      devbox.Name,
-		ManagedBy: label.DefaultManagedBy,
-		PartOf:    DevBoxPartOf,
-	})
-
 	// create or update secret
+	logger.Info("create or update secret", "devbox", devbox.Name)
 	if err := r.syncSecret(ctx, devbox, recLabels); err != nil {
 		logger.Error(err, "create or update secret failed")
 		r.Recorder.Eventf(devbox, corev1.EventTypeWarning, "Create secret failed", "%v", err)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncPod(ctx, devbox, recLabels); err != nil {
+	// create or update pod
+	logger.Info("create or update pod", "devbox", devbox.Name)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.syncPod(ctx, devbox, recLabels)
+	})
+	if err != nil {
 		logger.Error(err, "sync pod failed")
 		r.Recorder.Eventf(devbox, corev1.EventTypeWarning, "Sync pod failed", "%v", err)
 		return ctrl.Result{}, err
@@ -107,12 +125,14 @@ func (r *DevboxReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// create service if network type is NodePort
 	if devbox.Spec.NetworkSpec.Type == devboxv1alpha1.NetworkTypeNodePort {
+		logger.Info("create service", "devbox", devbox.Name)
 		if err := r.syncService(ctx, devbox, recLabels); err != nil {
 			logger.Error(err, "Create service failed")
 			r.Recorder.Eventf(devbox, corev1.EventTypeWarning, "Create service failed", "%v", err)
 			return ctrl.Result{RequeueAfter: time.Second * 3}, err
 		}
 	}
+	logger.Info("create devbox success", "devbox", devbox.Name)
 	r.Recorder.Eventf(devbox, corev1.EventTypeNormal, "Created", "create devbox success: %v", devbox.ObjectMeta.Name)
 	return ctrl.Result{Requeue: false}, nil
 }
@@ -218,9 +238,14 @@ func (r *DevboxReconciler) syncPod(ctx context.Context, devbox *devboxv1alpha1.D
 				if removeFlag {
 					return r.updateDevboxCommitHistory(ctx, devbox, &podList.Items[0])
 				}
+				if !helper.CheckPodConsistency(devbox, &podList.Items[0]) {
+					_ = r.Delete(ctx, &podList.Items[0])
+				}
 			case corev1.PodRunning:
-				// we do not recreate pod if it is running, even if pod does not have expected values
-				// update commit history status to success by pod name
+				//if pod is running,check pod need restart
+				if !helper.CheckPodConsistency(devbox, &podList.Items[0]) {
+					_ = r.Delete(ctx, &podList.Items[0])
+				}
 				return r.updateDevboxCommitHistory(ctx, devbox, &podList.Items[0])
 			case corev1.PodSucceeded:
 				if controllerutil.RemoveFinalizer(&podList.Items[0], FinalizerName) {
@@ -270,6 +295,27 @@ func commitSuccess(podStatus corev1.PodPhase) bool {
 	return false
 }
 
+func (r *DevboxReconciler) removeAll(ctx context.Context, devbox *devboxv1alpha1.Devbox, recLabels map[string]string) error {
+	// Delete Pod
+	if err := r.deleteResourcesByLabels(ctx, &corev1.Pod{}, devbox.Namespace, recLabels); err != nil {
+		return err
+	}
+	// Delete Service
+	if err := r.deleteResourcesByLabels(ctx, &corev1.Service{}, devbox.Namespace, recLabels); err != nil {
+		return err
+	}
+	// Delete Secret
+	return r.deleteResourcesByLabels(ctx, &corev1.Secret{}, devbox.Namespace, recLabels)
+}
+
+func (r *DevboxReconciler) deleteResourcesByLabels(ctx context.Context, obj client.Object, namespace string, labels map[string]string) error {
+	err := r.DeleteAllOf(ctx, obj,
+		client.InNamespace(namespace),
+		client.MatchingLabels(labels),
+	)
+	return client.IgnoreNotFound(err)
+}
+
 func (r *DevboxReconciler) updateDevboxCommitHistory(ctx context.Context, devbox *devboxv1alpha1.Devbox, pod *corev1.Pod) error {
 	for i := len(devbox.Status.CommitHistory) - 1; i >= 0; i-- {
 		if devbox.Status.CommitHistory[i].Pod == pod.Name {
@@ -312,6 +358,10 @@ func (r *DevboxReconciler) generateDevboxPod(ctx context.Context, devbox *devbox
 		{
 			Name:  "SEALOS_COMMIT_IMAGE_SQUASH",
 			Value: fmt.Sprintf("%v", devbox.Spec.Squash),
+		},
+		{
+			Name:  "SEALOS_DEVBOX_NAME",
+			Value: devbox.ObjectMeta.Namespace + devbox.ObjectMeta.Name,
 		},
 		{
 			Name: "SEALOS_DEVBOX_PASSWORD",
@@ -388,6 +438,7 @@ func (r *DevboxReconciler) generateDevboxPod(ctx context.Context, devbox *devbox
 	expectPod := &corev1.Pod{
 		ObjectMeta: objectMeta,
 		Spec: corev1.PodSpec{
+			Hostname:                      devbox.Name,
 			RestartPolicy:                 corev1.RestartPolicyNever,
 			Containers:                    containers,
 			Volumes:                       volume,
@@ -408,7 +459,7 @@ func (r *DevboxReconciler) getLastSuccessCommitImageName(ctx context.Context, de
 	if err := r.Get(ctx, client.ObjectKey{Namespace: devbox.Namespace, Name: devbox.Spec.RuntimeRef.Name}, rt); err != nil {
 		return "", err
 	}
-	if devbox.Status.CommitHistory == nil || len(devbox.Status.CommitHistory) == 0 {
+	if len(devbox.Status.CommitHistory) == 0 {
 		return rt.Spec.Image, nil
 	}
 	// get image name from commit history, ues the latest commit history
@@ -462,8 +513,14 @@ func (r *DevboxReconciler) syncService(ctx context.Context, devbox *devboxv1alph
 
 	// Retrieve the updated Service to get the NodePort
 	var updatedService corev1.Service
-	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: service.Namespace, Name: service.Name}, &updatedService); err != nil {
-		return err
+	err := retry.OnError(
+		retry.DefaultRetry,
+		func(err error) bool { return client.IgnoreNotFound(err) == nil },
+		func() error {
+			return r.Client.Get(ctx, client.ObjectKey{Namespace: service.Namespace, Name: service.Name}, &updatedService)
+		})
+	if err != nil {
+		return fmt.Errorf("failed to get updated service: %w", err)
 	}
 
 	// Extract the NodePort
@@ -532,5 +589,10 @@ func (r *DevboxReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&devboxv1alpha1.Devbox{}).
 		Owns(&corev1.Pod{}).
 		Owns(&corev1.Service{}).
+		Watches(
+			&corev1.Pod{},
+			handler.EnqueueRequestForOwner(mgr.GetScheme(), mgr.GetRESTMapper(), &devboxv1alpha1.Devbox{}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Complete(r)
 }
