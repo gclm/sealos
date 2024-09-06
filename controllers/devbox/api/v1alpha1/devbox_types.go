@@ -54,6 +54,8 @@ type ResourceList map[ResourceName]resource.Quantity
 type RuntimeRef struct {
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
+	// +kubebuilder:validation:Optional
+	Namespace string `json:"namespace,omitempty"`
 }
 
 type NetworkSpec struct {
@@ -71,13 +73,43 @@ type DevboxSpec struct {
 	State DevboxState `json:"state"`
 	// +kubebuilder:validation:Required
 	Resource ResourceList `json:"resource"`
+
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=false
 	Squash bool `json:"squash"`
+
 	// +kubebuilder:validation:Required
 	RuntimeRef RuntimeRef `json:"runtimeRef"`
+
 	// +kubebuilder:validation:Required
-	NetworkSpec NetworkSpec `json:"network"`
+	NetworkSpec NetworkSpec `json:"network,omitempty"`
+
+	// todo add rewrite labels and annotations...
+	// +kubebuilder:validation:Optional
+	ExtraLabels map[string]string `json:"extraLabels,omitempty"`
+	// +kubebuilder:validation:Optional
+	ExtraAnnotations map[string]string `json:"extraAnnotations,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Command []string `json:"command,omitempty"`
+	// +kubebuilder:validation:Optional
+	Args []string `json:"args,omitempty"`
+	// +kubebuilder:validation:Optional
+	WorkingDir string `json:"workingDir,omitempty"`
+	// todo add rewrite env...
+	// +kubebuilder:validation:Optional
+	ExtraEnvs []corev1.EnvVar `json:"extraEnvs"`
+
+	// todo add rewrite volumes and volume mounts..
+	// +kubebuilder:validation:Optional
+	ExtraVolumes []corev1.Volume `json:"extraVolumes,omitempty"`
+	// +kubebuilder:validation:Optional
+	ExtraVolumeMounts []corev1.VolumeMount `json:"extraVolumeMounts,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// +kubebuilder:validation:Optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 }
 
 type NetworkStatus struct {
@@ -103,11 +135,28 @@ const (
 )
 
 type CommitHistory struct {
-	Image  string       `json:"image"`
-	Time   metav1.Time  `json:"time"`
-	Pod    string       `json:"pod"`
-	Status CommitStatus `json:"status"`
+	Image       string       `json:"image"`
+	Time        metav1.Time  `json:"time"`
+	Pod         string       `json:"pod"`
+	Status      CommitStatus `json:"status"`
+	Node        string       `json:"node"`
+	ContainerID string       `json:"containerID"`
 }
+
+type DevboxPhase string
+
+const (
+	// DevboxPhaseRunning means Devbox is run and run success
+	DevboxPhaseRunning DevboxPhase = "Running"
+	// DevboxPhasePending means Devbox is run but not run success
+	DevboxPhasePending DevboxPhase = "Pending"
+	//DevboxPhaseStopped means Devbox is stop and stopped success
+	DevboxPhaseStopped DevboxPhase = "Stopped"
+	//DevboxPhaseStopping means Devbox is stop and not stopped success
+	DevboxPhaseStopping DevboxPhase = "Stopping"
+	//DevboxPhaseError means Devbox is error
+	DevboxPhaseError DevboxPhase = "Error"
+)
 
 // DevboxStatus defines the observed state of Devbox
 type DevboxStatus struct {
@@ -117,6 +166,8 @@ type DevboxStatus struct {
 	Network NetworkStatus `json:"network"`
 	// +kubebuilder:validation:Optional
 	CommitHistory []*CommitHistory `json:"commitHistory"`
+	// +kubebuilder:validation:Optional
+	Phase DevboxPhase `json:"phase"`
 }
 
 // +kubebuilder:object:root=true
@@ -126,6 +177,7 @@ type DevboxStatus struct {
 // +kubebuilder:printcolumn:name="PodPhase",type="string",JSONPath=".status.podPhase"
 // +kubebuilder:printcolumn:name="NetworkType",type="string",JSONPath=".status.network.type"
 // +kubebuilder:printcolumn:name="NodePort",type="integer",JSONPath=".status.network.nodePort"
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
 
 // Devbox is the Schema for the devboxes API
 type Devbox struct {
