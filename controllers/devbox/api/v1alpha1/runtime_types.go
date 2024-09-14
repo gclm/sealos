@@ -39,9 +39,17 @@ type Config struct {
 	// kubebuilder:validation:Optional
 	Args []string `json:"args,omitempty"`
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=/home/sealos/project
 	WorkingDir string `json:"workingDir,omitempty"`
 	// +kubebuilder:validation:Optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default={/bin/bash,-c}
+	ReleaseCommand []string `json:"releaseCommand,omitempty"`
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default={/home/sealos/project/entrypoint.sh}
+	ReleaseArgs []string `json:"releaseArgs,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={{name:"devbox-ssh-port",containerPort:22,protocol:TCP}}
@@ -53,14 +61,24 @@ type Config struct {
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
 }
 
+type Component struct {
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+	// +kubebuilder:validation:Required
+	Version string `json:"version"`
+}
+
 // RuntimeSpec defines the desired state of Runtime
 type RuntimeSpec struct {
 	// +kubebuilder:validation:Required
-	Title string `json:"title"`
-	// +kubebuilder:validation:Optional
-	Category []string `json:"category,omitempty"`
+	Version string `json:"version"`
 	// +kubebuilder:validation:Required
 	ClassRef string `json:"classRef"`
+
+	// +kubebuilder:validation:Optional
+	Components []Component `json:"components,omitempty"`
+	// +kubebuilder:validation:Optional
+	Category []string `json:"category,omitempty"`
 	// +kube:validation:Optional
 	Description string `json:"description,omitempty"`
 
