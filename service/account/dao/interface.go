@@ -57,6 +57,9 @@ type Interface interface {
 	GetRegions() ([]types.Region, error)
 	GetLocalRegion() types.Region
 	UseGiftCode(req *helper.UseGiftCodeReq) (*types.GiftCode, error)
+	GetRechargeDiscount(req helper.AuthReq) (helper.RechargeDiscountResp, error)
+	ProcessPendingTaskRewards() error
+	GetUserRealNameInfo(req *helper.GetRealNameInfoReq) (*types.UserRealNameInfo, error)
 }
 
 type Account struct {
@@ -1443,4 +1446,31 @@ func (m *Account) UseGiftCode(req *helper.UseGiftCodeReq) (*types.GiftCode, erro
 	}
 
 	return giftCode, nil
+}
+
+func (m *Account) GetRechargeDiscount(req helper.AuthReq) (helper.RechargeDiscountResp, error) {
+	userQuery := &types.UserQueryOpts{UID: req.GetAuth().UserUID}
+	userDiscount, err := m.ck.GetUserRechargeDiscount(userQuery)
+	if err != nil {
+		return helper.RechargeDiscountResp{}, fmt.Errorf("failed to get user recharge discount: %v", err)
+	}
+	return helper.RechargeDiscountResp{
+		DefaultSteps:       userDiscount.DefaultSteps,
+		FirstRechargeSteps: userDiscount.FirstRechargeSteps,
+	}, nil
+}
+
+func (m *Account) ProcessPendingTaskRewards() error {
+	return m.ck.ProcessPendingTaskRewards()
+}
+
+func (m *Account) GetUserRealNameInfo(req *helper.GetRealNameInfoReq) (*types.UserRealNameInfo, error) {
+	// get user info
+	userRealNameInfo, err := m.ck.GetUserRealNameInfoByUserID(req.UserID)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user real name info: %v", err)
+	}
+
+	return userRealNameInfo, nil
 }

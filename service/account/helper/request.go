@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/labring/sealos/service/account/common"
 
 	"github.com/dustin/go-humanize"
@@ -217,6 +219,13 @@ type UseGiftCodeReq struct {
 	AuthBase `json:",inline" bson:",inline"`
 }
 
+type GetRealNameInfoReq struct {
+	// @Summary Authentication information
+	// @Description Authentication information
+	// @JSONSchema required
+	AuthBase `json:",inline" bson:",inline"`
+}
+
 type UserUsageReq struct {
 	// @Summary Start and end time for the request
 	// @Description Start and end time for the request
@@ -285,6 +294,11 @@ func (a *AuthBase) SetAuth(auth *Auth) {
 	a.Auth = auth
 }
 
+type RechargeDiscountResp struct {
+	DefaultSteps       map[int64]float64 `json:"defaultSteps,omitempty" bson:"defaultSteps,omitempty"`
+	FirstRechargeSteps map[int64]float64 `json:"firstRechargeDiscount,omitempty" bson:"firstRechargeDiscount,omitempty"`
+}
+
 type NamespaceBillingHistoryResp struct {
 	Data    NamespaceBillingHistoryRespData `json:"data,omitempty" bson:"data,omitempty"`
 	Message string                          `json:"message,omitempty" bson:"message" example:"successfully retrieved namespace list"`
@@ -313,10 +327,11 @@ type TimeRange struct {
 }
 
 type Auth struct {
-	Owner      string `json:"owner" bson:"owner" example:"admin"`
-	UserID     string `json:"userID" bson:"userID" example:"admin"`
-	KubeConfig string `json:"kubeConfig" bson:"kubeConfig"`
-	Token      string `json:"token" bson:"token" example:"token"`
+	Owner      string    `json:"owner" bson:"owner" example:"admin"`
+	UserUID    uuid.UUID `json:"userUID" bson:"userUID" example:"user-123"`
+	UserID     string    `json:"userID" bson:"userID" example:"admin"`
+	KubeConfig string    `json:"kubeConfig" bson:"kubeConfig"`
+	Token      string    `json:"token" bson:"token" example:"token"`
 }
 
 func ParseNamespaceBillingHistoryReq(c *gin.Context) (*NamespaceBillingHistoryReq, error) {
@@ -545,6 +560,25 @@ func ParseUseGiftCodeReq(c *gin.Context) (*UseGiftCodeReq, error) {
 	}
 
 	return useGiftCode, nil
+}
+
+type GetRealNameInfoRespData struct {
+	UserID     string `json:"userID" bson:"userID" example:"user-123"`
+	IsRealName bool   `json:"isRealName" bson:"isRealName" example:"true"`
+}
+
+type GetRealNameInfoResp struct {
+	Data    GetRealNameInfoRespData `json:"data,omitempty" bson:"data,omitempty"`
+	Message string                  `json:"message,omitempty" bson:"message" example:"Successfully retrieved real name information"`
+}
+
+func ParseGetRealNameInfoReq(c *gin.Context) (*GetRealNameInfoReq, error) {
+	getRealNameInfoReq := &GetRealNameInfoReq{}
+	if err := c.ShouldBindJSON(getRealNameInfoReq); err != nil {
+		return nil, fmt.Errorf("bind json error: %v", err)
+	}
+
+	return getRealNameInfoReq, nil
 }
 
 func ParseUserUsageReq(c *gin.Context) (*UserUsageReq, error) {
