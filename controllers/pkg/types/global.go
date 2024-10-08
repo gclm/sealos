@@ -15,6 +15,7 @@
 package types
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -236,11 +237,18 @@ type PaymentRaw struct {
 	Gift            int64     `gorm:"type:bigint"`
 	TradeNO         string    `gorm:"type:text;unique;not null"`
 	// CodeURL is the codeURL of wechatpay
-	CodeURL    string `gorm:"type:text"`
-	InvoicedAt bool   `gorm:"type:boolean;default:false"`
-	Remark     string `gorm:"type:text"`
-	Message    string `gorm:"type:text;not null"`
+	CodeURL      string       `gorm:"type:text"`
+	InvoicedAt   bool         `gorm:"type:boolean;default:false"`
+	Remark       string       `gorm:"type:text"`
+	ActivityType ActivityType `gorm:"type:text;column:activityType"`
+	Message      string       `gorm:"type:text;not null"`
 }
+
+type ActivityType string
+
+const (
+	ActivityTypeFirstRecharge ActivityType = "FIRST_RECHARGE"
+)
 
 func (ErrorPaymentCreate) TableName() string {
 	return "ErrorPaymentCreate"
@@ -319,4 +327,21 @@ type AccountTransaction struct {
 
 func (AccountTransaction) TableName() string {
 	return "AccountTransaction"
+}
+
+type UserRealNameInfo struct {
+	ID                  uuid.UUID       `gorm:"column:id;type:uuid;default:gen_random_uuid();primary_key"`
+	UserUID             uuid.UUID       `gorm:"column:userUid;type:uuid;unique"`
+	RealName            *string         `gorm:"column:realName;type:text"`
+	IDCard              *string         `gorm:"column:idCard;type:text"`
+	Phone               *string         `gorm:"column:phone;type:text"`
+	IsVerified          bool            `gorm:"column:isVerified;type:boolean;default:false"`
+	IDVerifyFailedTimes int             `gorm:"column:idVerifyFailedTimes;type:integer;default:0"`
+	CreatedAt           time.Time       `gorm:"column:createdAt;type:timestamp(3) with time zone;default:current_timestamp()"`
+	UpdatedAt           time.Time       `gorm:"column:updatedAt;type:timestamp(3) with time zone;autoUpdateTime"`
+	AdditionalInfo      json.RawMessage `gorm:"column:additionalInfo;type:jsonb"`
+}
+
+func (UserRealNameInfo) TableName() string {
+	return "UserRealNameInfo"
 }
