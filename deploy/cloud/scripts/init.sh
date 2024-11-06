@@ -246,7 +246,7 @@ function sealos_run_controller {
   --env LOCAL_REGION="$localRegionUID" \
   --env ACCOUNT_API_JWT_SECRET="$jwtInternal"
 
-  sealos run tars/account-service.tar --env cloudDomain="$cloudDomain" --env cloudPort="$cloudPort"
+  sealos run tars/account-service.tar --env cloudDomain="$cloudDomain" --env cloudPort="$cloudPort" --env ACCOUNT_API_JWT_SECRET="$jwtInternal"
 
   # run license controller
   sealos run tars/license.tar
