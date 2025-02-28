@@ -2,13 +2,11 @@ package openai
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"strings"
 	"sync"
 	"unicode/utf8"
 
-	"github.com/labring/sealos/service/aiproxy/common/config"
 	"github.com/labring/sealos/service/aiproxy/common/image"
 	"github.com/labring/sealos/service/aiproxy/relay/model"
 	"github.com/pkoukk/tiktoken-go"
@@ -34,28 +32,26 @@ func getTokenEncoder(model string) *tiktoken.Tiktoken {
 	tokenEncoderLock.RLock()
 	tokenEncoder, ok := tokenEncoderMap[model]
 	tokenEncoderLock.RUnlock()
-
-	if ok && tokenEncoder != nil {
-		return tokenEncoder
-	}
 	if ok {
-		tokenEncoder, err := tiktoken.EncodingForModel(model)
-		if err != nil {
-			log.Error(fmt.Sprintf("failed to get token encoder for model %s: %s, using encoder for gpt-3.5-turbo", model, err.Error()))
-			tokenEncoder = defaultTokenEncoder
-		}
-		tokenEncoderLock.Lock()
-		tokenEncoderMap[model] = tokenEncoder
-		tokenEncoderLock.Unlock()
 		return tokenEncoder
 	}
-	return defaultTokenEncoder
+
+	tokenEncoderLock.Lock()
+	defer tokenEncoderLock.Unlock()
+	if tokenEncoder, ok := tokenEncoderMap[model]; ok {
+		return tokenEncoder
+	}
+
+	tokenEncoder, err := tiktoken.EncodingForModel(model)
+	if err != nil {
+		log.Warnf("failed to get token encoder for model %s: %v, using encoder for gpt-3.5-turbo", model, err)
+		tokenEncoder = defaultTokenEncoder
+	}
+	tokenEncoderMap[model] = tokenEncoder
+	return tokenEncoder
 }
 
 func getTokenNum(tokenEncoder *tiktoken.Tiktoken, text string) int {
-	if config.GetApproximateTokenEnabled() {
-		return int(float64(len(text)) * 0.38)
-	}
 	return len(tokenEncoder.Encode(text, nil, nil))
 }
 
@@ -83,7 +79,10 @@ func CountTokenMessages(messages []*model.Message, model string) int {
 			tokenNum += getTokenNum(tokenEncoder, v)
 		case []any:
 			for _, it := range v {
-				m := it.(map[string]any)
+				m, ok := it.(map[string]any)
+				if !ok {
+					continue
+				}
 				switch m["type"] {
 				case "text":
 					if textValue, ok := m["text"]; ok {
@@ -94,10 +93,16 @@ func CountTokenMessages(messages []*model.Message, model string) int {
 				case "image_url":
 					imageURL, ok := m["image_url"].(map[string]any)
 					if ok {
-						url := imageURL["url"].(string)
+						url, ok := imageURL["url"].(string)
+						if !ok {
+							continue
+						}
 						detail := ""
 						if imageURL["detail"] != nil {
-							detail = imageURL["detail"].(string)
+							detail, ok = imageURL["detail"].(string)
+							if !ok {
+								continue
+							}
 						}
 						imageTokens, err := countImageTokens(url, detail, model)
 						if err != nil {
@@ -221,11 +226,7 @@ func CountTokenText(text string, model string) int {
 	if strings.HasPrefix(model, "tts") {
 		return utf8.RuneCountInString(text)
 	}
-	if strings.HasPrefix(model, "sambert-") {
-		return len(text)
-	}
-	tokenEncoder := getTokenEncoder(model)
-	return getTokenNum(tokenEncoder, text)
+	return getTokenNum(getTokenEncoder(model), text)
 }
 
 func CountToken(text string) int {

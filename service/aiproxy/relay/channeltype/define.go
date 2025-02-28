@@ -6,6 +6,7 @@ import (
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/ali"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/anthropic"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/aws"
+	"github.com/labring/sealos/service/aiproxy/relay/adaptor/azure"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/baichuan"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/baidu"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/baiduv2"
@@ -16,6 +17,7 @@ import (
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/doubao"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/doubaoaudio"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/gemini"
+	"github.com/labring/sealos/service/aiproxy/relay/adaptor/geminiopenai"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/groq"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/lingyiwanwu"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/minimax"
@@ -28,13 +30,15 @@ import (
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/stepfun"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/tencent"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/vertexai"
+	"github.com/labring/sealos/service/aiproxy/relay/adaptor/xai"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/xunfei"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/zhipu"
 )
 
 var ChannelAdaptor = map[int]adaptor.Adaptor{
-	1: &openai.Adaptor{},
-	// 3:  &azure.Adaptor{},
+	1:  &openai.Adaptor{},
+	3:  &azure.Adaptor{},
+	12: &geminiopenai.Adaptor{},
 	13: &baiduv2.Adaptor{},
 	14: &anthropic.Adaptor{},
 	15: &baidu.Adaptor{},
@@ -62,6 +66,7 @@ var ChannelAdaptor = map[int]adaptor.Adaptor{
 	42: &vertexai.Adaptor{},
 	43: &siliconflow.Adaptor{},
 	44: &doubaoaudio.Adaptor{},
+	45: &xai.Adaptor{},
 }
 
 func GetAdaptor(channel int) (adaptor.Adaptor, bool) {
@@ -69,7 +74,16 @@ func GetAdaptor(channel int) (adaptor.Adaptor, bool) {
 	return a, ok
 }
 
-var ChannelNames = map[int]string{}
+type AdaptorMeta struct {
+	Name           string `json:"name"`
+	KeyHelp        string `json:"keyHelp"`
+	DefaultBaseURL string `json:"defaultBaseUrl"`
+}
+
+var (
+	ChannelNames = map[int]string{}
+	ChannelMetas = map[int]AdaptorMeta{}
+)
 
 func init() {
 	names := make(map[string]struct{})
@@ -79,6 +93,18 @@ func init() {
 			panic("duplicate channel name: " + name)
 		}
 		names[name] = struct{}{}
+		ChannelMetas[i] = AdaptorMeta{
+			Name:           name,
+			KeyHelp:        getAdaptorKeyHelp(adaptor),
+			DefaultBaseURL: adaptor.GetBaseURL(),
+		}
 		ChannelNames[i] = name
 	}
+}
+
+func getAdaptorKeyHelp(a adaptor.Adaptor) string {
+	if keyValidator, ok := a.(adaptor.KeyValidator); ok {
+		return keyValidator.KeyHelp()
+	}
+	return ""
 }

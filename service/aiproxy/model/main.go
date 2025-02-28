@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,13 +32,19 @@ func chooseDB(envName string) (*gorm.DB, error) {
 	switch {
 	case strings.HasPrefix(dsn, "postgres"):
 		// Use PostgreSQL
-		return openPostgreSQL(dsn)
-	case dsn != "":
+		log.Info("using PostgreSQL as database")
+		common.UsingPostgreSQL = true
+		return OpenPostgreSQL(dsn)
+	case strings.HasPrefix(dsn, "mysql"):
 		// Use MySQL
-		return openMySQL(dsn)
+		log.Info("using MySQL as database")
+		common.UsingMySQL = true
+		return OpenMySQL(dsn)
 	default:
 		// Use SQLite
-		return openSQLite()
+		log.Info("SQL_DSN not set, using SQLite as database: ", common.SQLitePath)
+		common.UsingSQLite = true
+		return OpenSQLite(common.SQLitePath)
 	}
 }
 
@@ -60,9 +67,7 @@ func newDBLogger() gormLogger.Interface {
 	)
 }
 
-func openPostgreSQL(dsn string) (*gorm.DB, error) {
-	log.Info("using PostgreSQL as database")
-	common.UsingPostgreSQL = true
+func OpenPostgreSQL(dsn string) (*gorm.DB, error) {
 	return gorm.Open(postgres.New(postgres.Config{
 		DSN:                  dsn,
 		PreferSimpleProtocol: true, // disables implicit prepared statement usage
@@ -75,10 +80,8 @@ func openPostgreSQL(dsn string) (*gorm.DB, error) {
 	})
 }
 
-func openMySQL(dsn string) (*gorm.DB, error) {
-	log.Info("using MySQL as database")
-	common.UsingMySQL = true
-	return gorm.Open(mysql.Open(dsn), &gorm.Config{
+func OpenMySQL(dsn string) (*gorm.DB, error) {
+	return gorm.Open(mysql.Open(strings.TrimPrefix(dsn, "mysql://")), &gorm.Config{
 		PrepareStmt:                              true, // precompile SQL
 		TranslateError:                           true,
 		Logger:                                   newDBLogger(),
@@ -87,10 +90,13 @@ func openMySQL(dsn string) (*gorm.DB, error) {
 	})
 }
 
-func openSQLite() (*gorm.DB, error) {
-	log.Info("SQL_DSN not set, using SQLite as database")
-	common.UsingSQLite = true
-	dsn := fmt.Sprintf("%s?_busy_timeout=%d", common.SQLitePath, common.SQLiteBusyTimeout)
+func OpenSQLite(sqlitePath string) (*gorm.DB, error) {
+	baseDir := filepath.Dir(sqlitePath)
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create base directory: %w", err)
+	}
+
+	dsn := fmt.Sprintf("%s?_busy_timeout=%d", sqlitePath, common.SQLiteBusyTimeout)
 	return gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		PrepareStmt:                              true, // precompile SQL
 		TranslateError:                           true,
@@ -176,11 +182,16 @@ func InitLogDB() {
 }
 
 func migrateLOGDB() error {
-	return LogDB.AutoMigrate(
+	err := LogDB.AutoMigrate(
 		&Log{},
 		&RequestDetail{},
 		&ConsumeError{},
 	)
+	if err != nil {
+		return err
+	}
+
+	return CreateLogIndexes(LogDB)
 }
 
 func setDBConns(db *gorm.DB) {
@@ -194,9 +205,9 @@ func setDBConns(db *gorm.DB) {
 		return
 	}
 
-	sqlDB.SetMaxIdleConns(env.Int("SQL_MAX_IDLE_CONNS", 100))
-	sqlDB.SetMaxOpenConns(env.Int("SQL_MAX_OPEN_CONNS", 1000))
-	sqlDB.SetConnMaxLifetime(time.Second * time.Duration(env.Int("SQL_MAX_LIFETIME", 60)))
+	sqlDB.SetMaxIdleConns(int(env.Int64("SQL_MAX_IDLE_CONNS", 100)))
+	sqlDB.SetMaxOpenConns(int(env.Int64("SQL_MAX_OPEN_CONNS", 1000)))
+	sqlDB.SetConnMaxLifetime(time.Second * time.Duration(env.Int64("SQL_MAX_LIFETIME", 60)))
 }
 
 func closeDB(db *gorm.DB) error {

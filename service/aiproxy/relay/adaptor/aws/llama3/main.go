@@ -6,22 +6,21 @@ import (
 	"io"
 	"net/http"
 	"text/template"
+	"time"
 
 	json "github.com/json-iterator/go"
-
-	"github.com/labring/sealos/service/aiproxy/common/random"
-	"github.com/labring/sealos/service/aiproxy/common/render"
-	"github.com/labring/sealos/service/aiproxy/middleware"
-	"github.com/labring/sealos/service/aiproxy/model"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/gin-gonic/gin"
-	"github.com/labring/sealos/service/aiproxy/common"
-	"github.com/labring/sealos/service/aiproxy/common/helper"
+	"github.com/labring/sealos/service/aiproxy/common/random"
+	"github.com/labring/sealos/service/aiproxy/common/render"
+	"github.com/labring/sealos/service/aiproxy/middleware"
+	"github.com/labring/sealos/service/aiproxy/model"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/aws/utils"
 	"github.com/labring/sealos/service/aiproxy/relay/adaptor/openai"
+	"github.com/labring/sealos/service/aiproxy/relay/constant"
 	"github.com/labring/sealos/service/aiproxy/relay/meta"
 	relaymodel "github.com/labring/sealos/service/aiproxy/relay/model"
 	"github.com/labring/sealos/service/aiproxy/relay/relaymode"
@@ -94,7 +93,7 @@ func ConvertRequest(textRequest *relaymodel.GeneralOpenAIRequest) *Request {
 }
 
 func Handler(meta *meta.Meta, c *gin.Context) (*relaymodel.ErrorWithStatusCode, *relaymodel.Usage) {
-	awsModelID, err := awsModelID(meta.ActualModelName)
+	awsModelID, err := awsModelID(meta.ActualModel)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "awsModelID")), nil
 	}
@@ -115,7 +114,12 @@ func Handler(meta *meta.Meta, c *gin.Context) (*relaymodel.ErrorWithStatusCode, 
 		return utils.WrapErr(errors.Wrap(err, "marshal request")), nil
 	}
 
-	awsResp, err := meta.AwsClient().InvokeModel(c.Request.Context(), awsReq)
+	awsClient, err := utils.AwsClientFromMeta(meta)
+	if err != nil {
+		return utils.WrapErr(errors.Wrap(err, "get aws client")), nil
+	}
+
+	awsResp, err := awsClient.InvokeModel(c.Request.Context(), awsReq)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "InvokeModel")), nil
 	}
@@ -127,7 +131,7 @@ func Handler(meta *meta.Meta, c *gin.Context) (*relaymodel.ErrorWithStatusCode, 
 	}
 
 	openaiResp := ResponseLlama2OpenAI(&llamaResponse)
-	openaiResp.Model = meta.OriginModelName
+	openaiResp.Model = meta.OriginModel
 	usage := relaymodel.Usage{
 		PromptTokens:     llamaResponse.PromptTokenCount,
 		CompletionTokens: llamaResponse.GenerationTokenCount,
@@ -156,7 +160,7 @@ func ResponseLlama2OpenAI(llamaResponse *Response) *openai.TextResponse {
 	fullTextResponse := openai.TextResponse{
 		ID:      "chatcmpl-" + random.GetUUID(),
 		Object:  "chat.completion",
-		Created: helper.GetTimestamp(),
+		Created: time.Now().Unix(),
 		Choices: []*openai.TextResponseChoice{&choice},
 	}
 	return &fullTextResponse
@@ -165,8 +169,8 @@ func ResponseLlama2OpenAI(llamaResponse *Response) *openai.TextResponse {
 func StreamHandler(meta *meta.Meta, c *gin.Context) (*relaymodel.ErrorWithStatusCode, *relaymodel.Usage) {
 	log := middleware.GetLogger(c)
 
-	createdTime := helper.GetTimestamp()
-	awsModelID, err := awsModelID(meta.ActualModelName)
+	createdTime := time.Now().Unix()
+	awsModelID, err := awsModelID(meta.ActualModel)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "awsModelID")), nil
 	}
@@ -187,7 +191,12 @@ func StreamHandler(meta *meta.Meta, c *gin.Context) (*relaymodel.ErrorWithStatus
 		return utils.WrapErr(errors.Wrap(err, "marshal request")), nil
 	}
 
-	awsResp, err := meta.AwsClient().InvokeModelWithResponseStream(c.Request.Context(), awsReq)
+	awsClient, err := utils.AwsClientFromMeta(meta)
+	if err != nil {
+		return utils.WrapErr(errors.Wrap(err, "get aws client")), nil
+	}
+
+	awsResp, err := awsClient.InvokeModelWithResponseStream(c.Request.Context(), awsReq)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "InvokeModelWithResponseStream")), nil
 	}
@@ -199,7 +208,7 @@ func StreamHandler(meta *meta.Meta, c *gin.Context) (*relaymodel.ErrorWithStatus
 	c.Stream(func(_ io.Writer) bool {
 		event, ok := <-stream.Events()
 		if !ok {
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
+			render.Done(c)
 			return false
 		}
 
@@ -215,13 +224,13 @@ func StreamHandler(meta *meta.Meta, c *gin.Context) (*relaymodel.ErrorWithStatus
 			if llamaResp.PromptTokenCount > 0 {
 				usage.PromptTokens = llamaResp.PromptTokenCount
 			}
-			if llamaResp.StopReason == "stop" {
+			if llamaResp.StopReason == constant.StopFinishReason {
 				usage.CompletionTokens = llamaResp.GenerationTokenCount
 				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 			}
 			response := StreamResponseLlama2OpenAI(&llamaResp)
 			response.ID = "chatcmpl-" + random.GetUUID()
-			response.Model = meta.OriginModelName
+			response.Model = meta.OriginModel
 			response.Created = createdTime
 			err = render.ObjectData(c, response)
 			if err != nil {

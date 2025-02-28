@@ -1,6 +1,8 @@
 package openai
 
-import "github.com/labring/sealos/service/aiproxy/relay/model"
+import (
+	"github.com/labring/sealos/service/aiproxy/relay/model"
+)
 
 type TextContent struct {
 	Type string `json:"type,omitempty"`
@@ -81,6 +83,7 @@ type TextResponseChoice struct {
 	FinishReason string        `json:"finish_reason"`
 	Message      model.Message `json:"message"`
 	Index        int           `json:"index"`
+	Text         string        `json:"text"`
 }
 
 type TextResponse struct {
@@ -136,6 +139,7 @@ type CompletionsStreamResponse struct {
 		Text         string `json:"text"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *model.Usage `json:"usage"`
 }
 
 type SubscriptionResponse struct {
