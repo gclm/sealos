@@ -85,7 +85,13 @@ const map = {
   webstorm: require('./icons/jetbrains/webstorm.svg').default,
   gift: require('./icons/gift.svg').default,
   fileConfig: require('./icons/fileConfig.svg').default,
-  trae: require('./icons/trae.svg').default
+  trae: require('./icons/trae.svg').default,
+  loadingCircle: require('./icons/loadingCircle.svg').default,
+  help: require('./icons/help.svg').default,
+  infoRounded: require('./icons/infoRounded.svg').default,
+  arrowUpRight: require('./icons/arrowUpRight.svg').default,
+  ellipse: require('./icons/ellipse.svg').default,
+  ellipseFull: require('./icons/ellipseFull.svg').default
 };
 
 const MyIcon = ({

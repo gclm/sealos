@@ -86,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.info(`faceidRealNameAuth: User ${payload.userUid} has already been verified`);
       return jsonRes(res, {
         code: 409,
-        message: 'Identity verification has been completed, cannot be repeated.'
+        message: 'User real name info already verified, cannot be repeated.'
       });
     }
 

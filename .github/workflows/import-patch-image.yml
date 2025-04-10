@@ -3,6 +3,7 @@ name: Import Patch Images Package
 env:
   # Common versions
   GO_VERSION: "1.20"
+  PROJECT_PATH: "./lifecycle"
 
 on:
   workflow_call:
@@ -41,7 +42,10 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
       - name: Resolve Modules
         id: set-matrix
-        run: bash ./scripts/resolve-patch-modules.sh ${{ inputs.arch }} "true"
+        env:
+          PROJECT_PATH: ${{ env.PROJECT_PATH }}
+          INPUT_ARCH: ${{ inputs.arch }}
+        run: bash "./${PROJECT_PATH}/scripts/resolve-patch-modules.sh" "${INPUT_ARCH}" "true"
   resolve-modules:
     runs-on: ubuntu-24.04
     outputs:
@@ -58,7 +62,10 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
       - name: Resolve Modules
         id: set-matrix
-        run: bash ./scripts/resolve-patch-modules.sh ${{ inputs.arch }}
+        env:
+          PROJECT_PATH: ${{ env.PROJECT_PATH }}
+          INPUT_ARCH: ${{ inputs.arch }}
+        run: bash "./${PROJECT_PATH}/scripts/resolve-patch-modules.sh" "${INPUT_ARCH}"
   build:
     needs: [ resolve-modules ]
     runs-on: ubuntu-24.04
@@ -90,13 +97,18 @@ jobs:
           sudo apt update && sudo apt install -y gcc-aarch64-linux-gnu
 
       - name: Build Binaries
+        env:
+          PROJECT_PATH: ${{ env.PROJECT_PATH }}
+          MATRIX_BINARY: ${{ matrix.binary }}
+          MATRIX_ARCH: ${{ matrix.arch }}
         run: |
-          make build BINS=${{ matrix.binary }} PLATFORM=linux_${{ matrix.arch }}
+          cd "${PROJECT_PATH}" && make build BINS="${MATRIX_BINARY}" PLATFORM="linux_${MATRIX_ARCH}"
+
       - name: Save Binaries
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.binary }}-${{ matrix.arch }}
-          path: bin/linux_${{ matrix.arch}}/${{ matrix.binary }}
+          path: ${{ env.PROJECT_PATH }}/bin/linux_${{ matrix.arch}}/${{ matrix.binary }}
   test:
     runs-on: ubuntu-24.04
     if: ${{ (inputs.e2e == true) }}
@@ -119,14 +131,16 @@ jobs:
       - name: Install Dependencies
         run: sudo apt update && sudo apt install -y libgpgme-dev libbtrfs-dev libdevmapper-dev
       - name: Build E2e Test
+        env:
+          PROJECT_PATH: ${{ env.PROJECT_PATH }}
         run: |
-          go install github.com/onsi/ginkgo/v2/ginkgo
+          cd "${PROJECT_PATH}" && go install github.com/onsi/ginkgo/v2/ginkgo
           cd test/e2e && ginkgo build .
       - name: Save E2e Test
         uses: actions/upload-artifact@v4
         with:
           name: e2e.test
-          path: test/e2e/e2e.test
+          path: ${{ env.PROJECT_PATH }}/test/e2e/e2e.test
   docker:
     needs: [ resolve-modules-arch,build ]
     runs-on: ubuntu-24.04
@@ -155,25 +169,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: lvscare-${{ matrix.arch }}
-          path: docker/lvscare
+          path: ${{ env.PROJECT_PATH }}/docker/lvscare
 
       - name: Download sealctl
         uses: actions/download-artifact@v4
         with:
           name: sealctl-${{ matrix.arch }}
-          path: docker/patch
+          path: ${{ env.PROJECT_PATH }}/docker/patch
 
       - name: Download image-cri-shim
         uses: actions/download-artifact@v4
         with:
           name: image-cri-shim-${{ matrix.arch }}
-          path: docker/patch
+          path: ${{ env.PROJECT_PATH }}/docker/patch
 
       - name: Download sealos
         uses: actions/download-artifact@v4
         with:
           name: sealos-${{ matrix.arch }}
-          path: docker/sealos
+          path: ${{ env.PROJECT_PATH }}/docker/sealos
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -181,26 +195,30 @@ jobs:
           driver-opts: network=host
 
       - name: Chmod a+x for docker
+        env:
+          PROJECT_PATH: ${{ env.PROJECT_PATH }}
         run: |
-          chmod a+x docker/sealos/*
-          chmod a+x docker/patch/*
-          chmod a+x docker/lvscare/*
+          chmod a+x "${PROJECT_PATH}/docker/sealos"/*
+          chmod a+x "${PROJECT_PATH}/docker/patch"/*
+          chmod a+x "${PROJECT_PATH}/docker/lvscare"/*
 
       - name: Build and Push lvscare Image
         uses: docker/build-push-action@v6
         with:
-          context: docker/lvscare
-          file: docker/lvscare/Dockerfile.main
+          context: ${{ env.PROJECT_PATH }}/docker/lvscare
+          file: ${{ env.PROJECT_PATH }}/docker/lvscare/Dockerfile.main
           push: true
           build-args: Bin=lvscare
           platforms: linux/${{ matrix.arch }}
           tags: localhost:5000/${{ github.repository_owner }}/lvscare:${{ env.GIT_COMMIT_SHORT_SHA }}-${{ matrix.arch }}
 
       - name: Build and Save Cluster Images
-        run: docker/patch/save-cluster-images.sh
         env:
+          PROJECT_PATH: ${{ env.PROJECT_PATH }}
           ARCH: ${{ matrix.arch }}
           OWNER: ${{ github.repository_owner }}
+        run: |
+          "${PROJECT_PATH}/docker/patch/save-cluster-images.sh"
 
       - name: Upload Cluster Images
         uses: actions/upload-artifact@v4
