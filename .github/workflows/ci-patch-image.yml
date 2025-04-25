@@ -114,6 +114,8 @@ jobs:
       - container-sealos
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
+      packages: write
       issues: write
     steps:
       - name: Checkout
@@ -145,6 +147,8 @@ jobs:
       - save-sealos
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
+      packages: write
       issues: write
     steps:
       - name: Checkout
