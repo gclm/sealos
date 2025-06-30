@@ -2,6 +2,7 @@ import type { SecretResponse } from '@/pages/api/getSecretByName';
 import { DELETE, GET, POST } from '@/services/request';
 import type {
   BackupItemType,
+  DBDetailType,
   DBEditType,
   DBListItemType,
   DBType,
@@ -23,8 +24,15 @@ import { RequiredByKeys } from '@/utils/tools';
 
 export const getMyDBList = () => GET<DBListItemType[]>('/api/getDBList');
 
-export const getDBByName = (name: string, config?: AxiosRequestConfig) =>
-  GET(`/api/getDBByName?name=${name}`, {}, config);
+export const getDBByName = ({
+  name,
+  mock = false,
+  config
+}: {
+  name: string;
+  mock?: boolean;
+  config?: AxiosRequestConfig;
+}) => GET<DBDetailType>(`/api/getDBByName?name=${name}&mock=${mock}`, {}, config);
 
 export const getConfigByName = ({ name, dbType }: { name: string; dbType: DBType }) =>
   GET<string>(`/api/getConfigByName?name=${name}&dbType=${dbType}`);
@@ -37,8 +45,9 @@ export const createDB = (payload: {
 
 export const getDBEvents = (name: string) => GET(`/api/getDBEvents?name=${name}`);
 
-export const getDBSecret = (data: { dbName: string; dbType: DBType }) =>
+export const getDBSecret = (data: { dbName: string; dbType: DBType; mock?: boolean }) =>
   GET<SecretResponse>(`/api/getSecretByName`, data);
+
 export const delDBByName = (name: string) => DELETE('/api/delDBByName', { name });
 
 export const applyYamlList = (yamlList: string[], type: 'create' | 'replace' | 'update') =>

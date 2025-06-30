@@ -34,6 +34,7 @@ import { useTemplateStore } from '@/stores/template';
 import { generateYamlList } from '@/utils/json2Yaml';
 import { patchYamlList } from '@/utils/tools';
 import { debounce } from 'lodash';
+import { useGuideStore } from '@/stores/guide';
 
 const ErrorModal = dynamic(() => import('@/components/modals/ErrorModal'));
 const DevboxCreatePage = () => {
@@ -170,7 +171,11 @@ const DevboxCreatePage = () => {
       }
     }
   );
+  const { guideConfigDevbox } = useGuideStore();
   const submitSuccess = async (formData: DevboxEditTypeV2) => {
+    if (!guideConfigDevbox) {
+      return router.push('/devbox/detail/devbox-mock');
+    }
     setIsLoading(true);
     try {
       // gpu inventory check
@@ -186,26 +191,27 @@ const DevboxCreatePage = () => {
         }
       }
       // quote check
-      const quoteCheckRes = checkQuotaAllow(
-        { ...formData, nodeports: devboxList.length + 1 } as DevboxEditTypeV2 & {
-          nodeports: number;
-        },
-        {
-          ...oldDevboxEditData.current,
-          nodeports: devboxList.length
-        } as DevboxEditType & {
-          nodeports: number;
-        }
-      );
-      if (quoteCheckRes) {
-        setIsLoading(false);
-        return toast({
-          status: 'warning',
-          title: t(quoteCheckRes),
-          duration: 5000,
-          isClosable: true
-        });
-      }
+      // const quoteCheckRes = checkQuotaAllow(
+      //   { ...formData, nodeports: devboxList.length + 1 } as DevboxEditTypeV2 & {
+      //     nodeports: number;
+      //   },
+      //   {
+      //     ...oldDevboxEditData.current,
+      //     nodeports: devboxList.length
+      //   } as DevboxEditType & {
+      //     nodeports: number;
+      //   }
+      // );
+      // if (quoteCheckRes) {
+      //   setIsLoading(false);
+      //   return toast({
+      //     status: 'warning',
+      //     title: t(quoteCheckRes),
+      //     duration: 5000,
+      //     isClosable: true
+      //   });
+      // }
+
       // update
       if (isEdit) {
         const yamlList = generateYamlList(formData, env);
@@ -238,7 +244,7 @@ const DevboxCreatePage = () => {
           devboxName: formData.name
         });
       } else {
-        await createDevbox({ devboxForm: formData });
+        await createDevbox(formData);
       }
       addDevboxIDE('vscode', formData.name);
       toast({
@@ -252,7 +258,7 @@ const DevboxCreatePage = () => {
       if (sourcePrice?.gpu) {
         refetchPrice();
       }
-      router.push(lastRoute);
+      router.push(`/devbox/detail/${formData.name}`);
     } catch (error) {
       if (typeof error === 'string' && error.includes('402')) {
         setErrorMessage(t('outstanding_tips'));

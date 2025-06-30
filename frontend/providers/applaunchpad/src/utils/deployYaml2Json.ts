@@ -9,7 +9,7 @@ import {
 } from '@/constants/app';
 import { SEALOS_USER_DOMAINS } from '@/store/static';
 import type { AppEditType } from '@/types/app';
-import { pathFormat, pathToNameFormat, str2Num, strToBase64 } from '@/utils/tools';
+import { pathFormat, mountPathToConfigMapKey, str2Num, strToBase64 } from '@/utils/tools';
 import dayjs from 'dayjs';
 import yaml from 'js-yaml';
 
@@ -97,23 +97,31 @@ export const json2DeployCr = (data: AppEditType, type: 'deployment' | 'statefuls
     })),
     imagePullPolicy: 'Always'
   };
+
   const configMapVolumeMounts = data.configMapList.map((item) => ({
-    name: pathToNameFormat(item.mountPath),
+    name: item.volumeName,
     mountPath: item.mountPath,
-    subPath: pathFormat(item.mountPath)
+    subPath: item.key
   }));
-  const configMapVolumes = data.configMapList.map((item) => ({
-    name: pathToNameFormat(item.mountPath), // name === [development.***.volumeMounts[*].name]
-    configMap: {
-      name: data.appName, // name === configMap.yaml.meta.name
-      items: [
-        {
-          key: pathToNameFormat(item.mountPath),
-          path: pathFormat(item.mountPath) // path ===[development.***.volumeMounts[*].subPath]
-        }
-      ]
-    }
-  }));
+
+  const generateConfigMapVolumes = () => {
+    if (data.configMapList.length === 0) return [];
+    const uniqueVolumeNames = [...new Set(data.configMapList.map((item) => item.volumeName))];
+    return uniqueVolumeNames.map((volumeName) => ({
+      name: volumeName,
+      configMap: {
+        name: data.appName
+      }
+    }));
+  };
+
+  const configMapVolumes = generateConfigMapVolumes();
+
+  const finalVolumes = configMapVolumes
+    ? [...(data.volumes || []), ...configMapVolumes]
+    : data.volumes || [];
+
+  const finalVolumeMounts = [...(data.volumeMounts || []), ...configMapVolumeMounts];
 
   // pvc settings
   const storageTemplates = data.storeList.map((store) => ({
@@ -167,11 +175,11 @@ export const json2DeployCr = (data: AppEditType, type: 'deployment' | 'statefuls
             containers: [
               {
                 ...commonContainer,
-                volumeMounts: [...(data?.volumeMounts || []), ...configMapVolumeMounts]
+                volumeMounts: finalVolumeMounts
               }
             ],
             ...gpuMap,
-            volumes: [...(data?.volumes || []), ...configMapVolumes]
+            volumes: finalVolumes
           }
         }
       }
@@ -200,8 +208,7 @@ export const json2DeployCr = (data: AppEditType, type: 'deployment' | 'statefuls
               {
                 ...commonContainer,
                 volumeMounts: [
-                  ...(data?.volumeMounts || []),
-                  ...configMapVolumeMounts,
+                  ...finalVolumeMounts,
                   ...data.storeList.map((item) => ({
                     name: item.name,
                     mountPath: item.path
@@ -210,7 +217,7 @@ export const json2DeployCr = (data: AppEditType, type: 'deployment' | 'statefuls
               }
             ],
             ...gpuMap,
-            volumes: [...(data?.volumes || []), ...configMapVolumes]
+            volumes: finalVolumes
           }
         },
         volumeClaimTemplates: storageTemplates
@@ -432,7 +439,7 @@ export const json2ConfigMap = (data: AppEditType) => {
 
   const configFile: { [key: string]: string } = {};
   data.configMapList.forEach((item) => {
-    configFile[pathToNameFormat(item.mountPath)] = item.value; // key ===  [development.***.volumes[*].configMap.items[0].key]
+    configFile[item.key] = item.value;
   });
 
   const template = {

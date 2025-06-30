@@ -8,10 +8,10 @@ import type {
   V1Pod,
   SinglePodMetrics,
   CoreV1EventList,
-  V2HorizontalPodAutoscaler
+  V2HorizontalPodAutoscaler,
+  V1VolumeMount
 } from '@kubernetes/client-node';
 import dayjs from 'dayjs';
-import yaml from 'js-yaml';
 import type {
   AppListItemType,
   PodDetailType,
@@ -20,9 +20,10 @@ import type {
   PodEvent,
   HpaTarget,
   ApplicationProtocolType,
-  TAppSource,
   TAppSourceType,
-  TransportProtocolType
+  TransportProtocolType,
+  DeployKindsType,
+  AppEditType
 } from '@/types/app';
 import {
   appStatusMap,
@@ -37,11 +38,11 @@ import {
   AppSourceConfigs
 } from '@/constants/app';
 import { cpuFormatToM, memoryFormatToMi, formatPodTime, atobSecretYaml } from '@/utils/tools';
-import type { DeployKindsType, AppEditType } from '@/types/app';
 import { defaultEditVal } from '@/constants/editApp';
 import { customAlphabet } from 'nanoid';
-import { getInitData } from '@/api/platform';
 import { has } from 'lodash';
+import type { EnvResponse } from '@/types';
+import { lauchpadRemarkKey } from '@/constants/account';
 
 const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz', 12);
 
@@ -114,7 +115,9 @@ export const adaptAppListItem = (app: V1Deployment & V1StatefulSet): AppListItem
     minReplicas: +(app.metadata?.annotations?.[minReplicasKey] || app.status?.readyReplicas || 0),
     storeAmount,
     labels: app.metadata?.labels || {},
-    source: getAppSource(app)
+    source: getAppSource(app),
+    kind: app.kind?.toLowerCase() as 'deployment' | 'statefulset',
+    remark: app.metadata?.annotations?.[lauchpadRemarkKey]
   };
 };
 
@@ -222,9 +225,8 @@ export enum YamlKindEnum {
   PersistentVolumeClaim = 'PersistentVolumeClaim'
 }
 
-export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDetailType> => {
-  const { SEALOS_DOMAIN, SEALOS_USER_DOMAINS } = await getInitData();
-
+// adaptAppDetail function has been moved to server side API call
+export const adaptAppDetail = (configs: DeployKindsType[], envs: EnvResponse): AppDetailType => {
   const allServicePorts = configs.flatMap((item) => {
     if (item.kind === YamlKindEnum.Service) {
       const temp = item as V1Service;
@@ -237,7 +239,6 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
   const deployKindsMap: {
     [YamlKindEnum.StatefulSet]?: V1StatefulSet;
     [YamlKindEnum.Deployment]?: V1Deployment;
-    // [YamlKindEnum.Service]?: V1Service;
     [YamlKindEnum.ConfigMap]?: V1ConfigMap;
     [YamlKindEnum.HorizontalPodAutoscaler]?: V2HorizontalPodAutoscaler;
     [YamlKindEnum.Secret]?: V1Secret;
@@ -252,9 +253,85 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
 
   const appDeploy = deployKindsMap.Deployment || deployKindsMap.StatefulSet;
 
-  if (!appDeploy) {
+  if (!appDeploy || !appDeploy?.metadata?.name) {
     throw new Error('获取APP异常');
   }
+
+  const appName = appDeploy.metadata?.name;
+
+  const getConfigMapVolumeNames = (): string[] => {
+    if (!deployKindsMap.ConfigMap) return [];
+
+    const configMapName = deployKindsMap.ConfigMap.metadata?.name;
+    const configMapVolumes =
+      appDeploy?.spec?.template?.spec?.volumes?.filter(
+        (volume) => volume.configMap?.name === configMapName
+      ) || [];
+
+    return configMapVolumes.map((volume) => volume.name).filter(Boolean) as string[];
+  };
+
+  const configMapVolumeNames = getConfigMapVolumeNames();
+
+  const getConfigMapList = (): Array<{
+    mountPath: string;
+    value: string;
+    key: string;
+    volumeName: string;
+  }> => {
+    const configMap = deployKindsMap.ConfigMap;
+    if (!configMap?.data || !appDeploy) {
+      return [];
+    }
+    const configMapName = configMap.metadata?.name;
+    const volumes = appDeploy.spec?.template?.spec?.volumes || [];
+    const configMapVolumes = volumes.filter((volume) => volume.configMap?.name === configMapName);
+    if (configMapVolumes.length === 0) {
+      return [];
+    }
+    const volumeMounts = appDeploy.spec?.template?.spec?.containers?.[0]?.volumeMounts || [];
+    const results: Array<{ mountPath: string; value: string; key: string; volumeName: string }> =
+      [];
+
+    configMapVolumes.forEach((volume) => {
+      const relatedMounts = volumeMounts.filter((mount) => mount.name === volume.name);
+
+      if (volume.configMap?.items && volume.configMap.items.length > 0) {
+        volume.configMap.items.forEach((item) => {
+          if (!item.key) return;
+          const matchedMount = relatedMounts.find((mount) => mount.subPath === item.path);
+
+          if (matchedMount) {
+            const value = configMap.data?.[item.key] || '';
+            results.push({
+              mountPath: matchedMount.mountPath,
+              value: value,
+              key: item.key,
+              volumeName: volume.name
+            });
+          }
+        });
+      } else {
+        relatedMounts.forEach((mount) => {
+          if (mount.subPath) {
+            const configMapKey = mount.subPath;
+            const value = configMap?.data?.[configMapKey] || '';
+
+            if (value) {
+              results.push({
+                mountPath: mount.mountPath,
+                value: value,
+                key: configMapKey,
+                volumeName: volume.name
+              });
+            }
+          }
+        });
+      }
+    });
+
+    return results.filter((item) => item.value);
+  };
 
   const useGpu = !!Number(
     appDeploy.spec?.template?.spec?.containers?.[0]?.resources?.limits?.[gpuResourceKey]
@@ -263,14 +340,23 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
 
   const getFilteredVolumeMounts = () => {
     const volumeMounts = appDeploy?.spec?.template?.spec?.containers?.[0]?.volumeMounts || [];
-    const configMapKeys = Object.keys(deployKindsMap.ConfigMap?.data || {});
     const storeNames =
       deployKindsMap.StatefulSet?.spec?.volumeClaimTemplates?.map(
         (template) => template.metadata?.name
       ) || [];
 
     return volumeMounts.filter(
-      (mount) => !configMapKeys.includes(mount.name) && !storeNames.includes(mount.name)
+      (mount) => !configMapVolumeNames.includes(mount.name) && !storeNames.includes(mount.name)
+    );
+  };
+
+  const getFilteredVolumes = () => {
+    return (
+      appDeploy?.spec?.template?.spec?.volumes?.filter((volume) => {
+        if (!deployKindsMap.ConfigMap) return true;
+        const configMapName = deployKindsMap.ConfigMap.metadata?.name;
+        return !(volume.configMap?.name === configMapName);
+      }) || []
     );
   };
 
@@ -278,7 +364,7 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
     labels: appDeploy?.metadata?.labels || {},
     crYamlList: configs,
     id: appDeploy.metadata?.uid || ``,
-    appName: appDeploy.metadata?.name || 'app Name',
+    appName: appName,
     createTime: dayjs(appDeploy.metadata?.creationTimestamp).format('YYYY-MM-DD HH:mm'),
     status: appStatusMap.waiting,
     isPause: !!appDeploy?.metadata?.annotations?.[pauseKey],
@@ -340,8 +426,8 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
         const protocol = (item?.protocol || 'TCP') as TransportProtocolType;
 
         const isCustomDomain =
-          !domain.endsWith(SEALOS_DOMAIN) &&
-          !SEALOS_USER_DOMAINS.some((item) => domain.endsWith(item.name));
+          !domain.endsWith(envs.SEALOS_DOMAIN) &&
+          !envs.SEALOS_USER_DOMAINS.some((item) => domain.endsWith(item.name));
 
         return {
           networkName: ingress?.metadata?.name || '',
@@ -357,10 +443,10 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
             : domain.split('.')[0],
           customDomain: isCustomDomain ? domain : '',
           domain: isCustomDomain
-            ? SEALOS_DOMAIN
-            : item?.nodePort // 如果有 nodePort，则使用域名
+            ? envs.SEALOS_DOMAIN
+            : item?.nodePort
             ? domain
-            : domain.split('.').slice(1).join('.') || SEALOS_DOMAIN
+            : domain.split('.').slice(1).join('.') || envs.SEALOS_DOMAIN
         };
       }) || [],
     hpa: deployKindsMap.HorizontalPodAutoscaler?.spec
@@ -385,15 +471,7 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
           maxReplicas: deployKindsMap.HorizontalPodAutoscaler.spec.maxReplicas || 10
         }
       : defaultEditVal.hpa,
-    configMapList: deployKindsMap.ConfigMap?.data
-      ? Object.entries(deployKindsMap.ConfigMap.data).map(([key, value], i) => ({
-          mountPath:
-            appDeploy?.spec?.template.spec?.containers[0].volumeMounts?.find(
-              (item) => item.name === key
-            )?.mountPath || key,
-          value
-        }))
-      : [],
+    configMapList: getConfigMapList(),
     secret: atobSecretYaml(deployKindsMap?.Secret?.data?.['.dockerconfigjson']),
     storeList: deployKindsMap.StatefulSet?.spec?.volumeClaimTemplates
       ? deployKindsMap.StatefulSet?.spec?.volumeClaimTemplates.map((item) => ({
@@ -403,8 +481,7 @@ export const adaptAppDetail = async (configs: DeployKindsType[]): Promise<AppDet
         }))
       : [],
     volumeMounts: getFilteredVolumeMounts(),
-    // keep original non-configMap type volumes
-    volumes: appDeploy?.spec?.template?.spec?.volumes?.filter((volume) => !volume.configMap) || [],
+    volumes: getFilteredVolumes(),
     kind: appDeploy?.kind?.toLowerCase() as 'deployment' | 'statefulset',
     source: getAppSource(appDeploy)
   };

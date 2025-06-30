@@ -3,16 +3,25 @@ import request from '@/services/request';
 import useSessionStore from '@/stores/session';
 import { ApiResp, Region } from '@/types';
 import { AccessTokenPayload } from '@/types/token';
-import { Box, Divider, HStack, Text, useDisclosure } from '@chakra-ui/react';
-import { InfoIcon, ProviderIcon } from '@sealos/ui';
+import {
+  Box,
+  Center,
+  Divider,
+  Flex,
+  HStack,
+  Img,
+  Text,
+  useDisclosure,
+  VStack
+} from '@chakra-ui/react';
 import { useQuery } from '@tanstack/react-query';
 import { jwtDecode } from 'jwt-decode';
 import { useTranslation } from 'next-i18next';
 import { useRouter } from 'next/router';
 import { useMemo } from 'react';
-import { DesktopExchangeIcon, ZoneIcon } from '../icons';
-import { I18nCloudProvidersKey } from '@/types/i18next';
 import { useConfigStore } from '@/stores/config';
+import { CheckIcon, ChevronDown } from 'lucide-react';
+import { I18nCloudProvidersKey } from '@/types/i18next';
 
 export default function RegionToggle() {
   const disclosure = useDisclosure();
@@ -53,43 +62,42 @@ export default function RegionToggle() {
   };
 
   return (
-    <>
+    <Box>
       {regionList?.length > 1 && (
-        <HStack
-          // fix for blur
-          position={'relative'}
-          mt={'8px'}
-        >
+        <HStack position={'relative'}>
           <HStack
             w={'full'}
-            borderRadius={'100px'}
-            p={'8px 12px'}
-            background={'rgba(255, 255, 255, 0.07)'}
-            _hover={{
-              background: 'rgba(255, 255, 255, 0.15)'
-            }}
-            fontSize={'12px'}
-            color={'white'}
+            fontSize={'14px'}
+            color={'primary'}
             fontWeight={'500'}
-            minH={'40px'}
+            minH={'36px'}
             onClick={() => {
               disclosure.onOpen();
             }}
             cursor={'pointer'}
             userSelect={'none'}
+            position={'relative'}
+            gap={'8px'}
+            _hover={{
+              bg: 'secondary'
+            }}
+            bg={disclosure.isOpen ? 'secondary' : ''}
+            borderRadius={'8px'}
+            pl={'12px'}
+            pr={'8px'}
           >
-            <ZoneIcon />
-            <Text>
-              {t((curRegion?.location as I18nCloudProvidersKey) || 'beijing', {
-                ns: 'cloudProviders'
-              })}
-              {curRegion?.description?.serial}
-            </Text>
-            <DesktopExchangeIcon ml={'auto'} />
+            <Text cursor={'pointer'}>{curRegion?.displayName}</Text>
+            <Center
+              transform={disclosure.isOpen ? 'rotate(-90deg)' : 'rotate(0deg)'}
+              borderRadius={'4px'}
+              transition={'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'}
+            >
+              <ChevronDown size={16} color={'#525252'} />
+            </Center>
           </HStack>
 
           {disclosure.isOpen ? (
-            <Box position={'absolute'} right={0}>
+            <Box position={'absolute'} left={0}>
               <Box
                 position={'fixed'}
                 inset={0}
@@ -100,88 +108,106 @@ export default function RegionToggle() {
                 }}
               ></Box>
               <Box
-                bg="rgba(22, 30, 40, 0.35)"
-                boxShadow={'0px 15px 20px 0px rgba(0, 0, 0, 0.10)'}
                 position={'absolute'}
                 zIndex={999}
-                top="43px"
-                right={0}
+                top="22px"
+                left={'0px'}
                 cursor={'initial'}
-                borderRadius={'8px'}
-                p="20px"
-                backdropFilter={'blur(80px) saturate(150%)'}
+                borderRadius={'12px'}
+                py={'8px'}
+                border={'0.5px solid #E4E4E7'}
+                background={'#FFF'}
+                boxShadow={
+                  '0px 20px 25px -5px rgba(0, 0, 0, 0.10), 0px 10px 10px -5px rgba(0, 0, 0, 0.04)'
+                }
+                color={'#18181B'}
+                width={'fit-content'}
+                transition={'all 0.2s ease-in-out'}
               >
-                <HStack gap={'12px'} alignItems={'stretch'}>
+                <Text px={'12px'} py={'6px'} color={'#71717A'} fontSize={'12px'} fontWeight={'500'}>
+                  {t('common:region')}
+                </Text>
+                <VStack alignItems={'stretch'} px={'8px'}>
                   {regionList.map((region) => {
                     const cpuPrice = region?.description?.prices?.find((p) => p.name === 'CPU');
                     return (
-                      <Box
+                      <Flex
+                        border={'1px solid #E4E4E7'}
+                        flexDirection={'column'}
+                        fontSize={'14px'}
                         whiteSpace={'nowrap'}
-                        bg={'rgba(255, 255, 255, 0.10)'}
-                        borderRadius={'8px'}
+                        borderRadius={'12px'}
                         py={'12px'}
+                        px={'16px'}
                         key={region.uid}
-                        {...(region.uid === curRegionUid
-                          ? {
-                              border: '1.5px solid #219BF4'
-                            }
-                          : {
-                              async onClick() {
-                                await handleCick(region);
-                              },
-                              cursor: 'pointer',
-                              _hover: {
-                                bgColor: 'rgba(255, 255, 255, 0.10)'
-                              }
-                            })}
+                        onClick={() => {
+                          handleCick(region);
+                        }}
+                        cursor={'pointer'}
+                        _hover={{
+                          bgColor: '#FAFAFA'
+                        }}
                       >
-                        <Box
-                          px={'16px'}
-                          fontSize={'14px'}
-                          fontWeight={'500'}
-                          pb={'10px'}
-                          borderBottom={'1px solid rgba(0, 0, 0, 0.05)'}
-                          mb={'12px'}
-                        >
-                          <Text color={'rgba(255, 255, 255, 0.80)'}>
-                            {t(region?.location as I18nCloudProvidersKey, { ns: 'cloudProviders' })}
-                            {region?.description?.serial}
-                          </Text>
-                          {cpuPrice && (
-                            <Text color={'#47B2FF'} whiteSpace={'nowrap'}>
-                              {cpuPrice?.name} {cpuPrice?.unit_price || 0} {t('common:yuan')}/
-                              {t('common:core')}/{t('common:year')}
+                        <Flex justifyContent={'space-between'} alignItems={'center'}>
+                          <Box>
+                            <Text fontSize={'14px'} fontWeight={400} color={'#18181B'}>
+                              {region?.displayName} {region?.description?.serial}
                             </Text>
-                          )}
-                        </Box>
-                        {/* <Divider bg={'rgba(255, 255, 255, 0.10)'} my={'12px'} /> */}
-                        <Box px={'16px'} fontSize={'11px'} fontWeight={'500'}>
-                          <HStack color={'rgba(255, 255, 255, 0.80)'} gap={'4px'} mb={'2px'}>
-                            <ProviderIcon boxSize={'12px'} />
-                            <Text>{t('cloudProviders:provider')}</Text>
-                          </HStack>
-                          <Text color={'white'} mb={'8px'}>
+                            {cpuPrice && (
+                              <Text
+                                mt={'4px'}
+                                color={'#71717A'}
+                                fontSize={'12px'}
+                                whiteSpace={'nowrap'}
+                              >
+                                {cpuPrice?.name} {cpuPrice?.unit_price || 0} {t('common:yuan')}/
+                                {t('common:core')}/{t('common:year')}
+                              </Text>
+                            )}
+                          </Box>
+                          {region.uid === curRegionUid && <CheckIcon size={16} color={'#1C4EF5'} />}
+                        </Flex>
+                        <Divider bg={'#F4F4F5'} my={'8px'} />
+                        <Flex alignItems={'center'}>
+                          {region?.description.provider &&
+                            [
+                              'volcano_engine',
+                              'alibaba_cloud',
+                              'tencent_cloud',
+                              'google_cloud'
+                            ].includes(region?.description.provider) && (
+                              <Img
+                                boxSize={'14px'}
+                                mr={'4px'}
+                                flexShrink={0}
+                                src={`/images/cloud_providers/${region?.description.provider}.svg`}
+                              ></Img>
+                            )}
+                          <Text color={'#71717A'}>
                             {t(region?.description?.provider as I18nCloudProvidersKey, {
                               ns: 'cloudProviders'
                             })}
                           </Text>
-                          <HStack color={'rgba(255, 255, 255, 0.80)'} gap={'4px'} mb={'2px'}>
-                            <InfoIcon boxSize={'12px'} />
-                            <Text>{t('common:description')}</Text>
-                          </HStack>
-                          <Text whiteSpace={'pre-wrap'} color={'white'} lineHeight={'20px'}>
+                          <Divider
+                            orientation="vertical"
+                            h={'8px'}
+                            bg={'#E4E4E7'}
+                            mx={'8px'}
+                            flexShrink={0}
+                          />
+                          <Text color={'#71717A'}>
                             {region?.description?.description?.[i18n.language as 'zh' | 'en']}
                           </Text>
-                        </Box>
-                      </Box>
+                        </Flex>
+                      </Flex>
                     );
                   })}
-                </HStack>
+                </VStack>
               </Box>
             </Box>
           ) : null}
         </HStack>
       )}
-    </>
+    </Box>
   );
 }

@@ -14,7 +14,7 @@ export * from './region';
 export * from './session';
 export * from './system';
 export * from './tools';
-
+export * from './loginFailureMesage';
 declare global {
   var mongodb: MongoClient | null;
   var AppConfig: AppConfigType;
@@ -25,4 +25,5 @@ declare global {
   var WechatExpiresIn: number | undefined;
   var nodemailer: Transporter<SMTPPool.SentMessageInfo> | undefined;
   var umami: Umami | undefined;
+  var dataLayer: { push: Function } | null;
 }
