@@ -281,8 +281,8 @@ init() {
     pull_image "cockroach" "v2.12.0"
     pull_image "metrics-server" "v${metrics_server_version#v:-0.6.4}"
     pull_image "victoria-metrics-k8s-stack" "v${victoria_metrics_k8s_stack_version#v:-1.96.0}"
-    get_prompt "pull_image" "y" && echo "sealos-cloud:$image_version"
-    sealos pull -q "ghcr.io/gclm/sealos-cloud:${image_version}" >/dev/null
+    get_prompt "pull_image" "y" && echo "sealos-cloud:$cloud_version"
+    sealos pull -q "ghcr.io/gclm/sealos-cloud:${cloud_version}" >/dev/null
 }
 
 pull_image() {
