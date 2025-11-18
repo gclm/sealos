@@ -14,7 +14,7 @@ import { useGlobalStore } from '@/store/global';
 import { useGuideStore } from '@/store/guide';
 import { DBListItemType } from '@/types/db';
 import { printMemory } from '@/utils/tools';
-import { Search } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import {
   Box,
   Button,
@@ -25,7 +25,8 @@ import {
   InputGroup,
   Text,
   useDisclosure,
-  useTheme
+  useTheme,
+  Badge
 } from '@chakra-ui/react';
 import { useMessage } from '@sealos/ui';
 import { track } from '@sealos/gtm';
@@ -61,11 +62,14 @@ import {
   ModalCloseButton,
   ModalBody,
   FormControl,
-  FormLabel,
   Input,
   ModalFooter
 } from '@chakra-ui/react';
 import { setDBRemark } from '@/api/db';
+import { WorkspaceQuotaItem } from '@/types/workspace';
+import { useQuery } from '@tanstack/react-query';
+import { useUserStore } from '@/store/user';
+import { InsufficientQuotaDialog } from '@/components/InsufficientQuotaDialog';
 
 const DelModal = dynamic(() => import('@/pages/db/detail/components/DelModal'));
 
@@ -84,6 +88,7 @@ const DBList = ({
   const theme = useTheme();
   const router = useRouter();
   const { SystemEnv } = useEnvStore();
+  const { loadUserQuota, checkExceededQuotas, session } = useUserStore();
   const {
     isOpen: isOpenUpdateModal,
     onOpen: onOpenUpdateModal,
@@ -98,10 +103,49 @@ const DBList = ({
   const [delAppName, setDelAppName] = useState('');
   const [updateAppName, setUpdateAppName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [quotaLoaded, setQuotaLoaded] = useState(false);
+  const [exceededQuotas, setExceededQuotas] = useState<WorkspaceQuotaItem[]>([]);
+  const [exceededDialogOpen, setExceededDialogOpen] = useState(false);
 
   const { openConfirm: onOpenPause, ConfirmChild: PauseChild } = useConfirm({
     content: t('pause_hint')
   });
+
+  // load user quota on component mount
+  useEffect(() => {
+    if (quotaLoaded) return;
+
+    loadUserQuota();
+    setQuotaLoaded(true);
+  }, [quotaLoaded, loadUserQuota]);
+
+  useEffect(() => {
+    console.log('alerts', alerts);
+  }, []);
+
+  const handleCreateApp = useCallback(() => {
+    // Check quota before creating app
+    const exceededQuotaItems = checkExceededQuotas({
+      cpu: 1,
+      memory: 1,
+      nodeport: 1,
+      storage: 1,
+      ...(session?.subscription?.type === 'PAYG' ? {} : { traffic: 1 })
+    });
+
+    if (exceededQuotaItems.length > 0) {
+      setExceededQuotas(exceededQuotaItems);
+      setExceededDialogOpen(true);
+      return;
+    } else {
+      setExceededQuotas([]);
+      track('module_view', {
+        module: 'database',
+        view_name: 'create_form'
+      });
+      router.push('/db/edit');
+    }
+  }, [checkExceededQuotas, router, session]);
 
   const handleRestartApp = useCallback(
     async (db: DBListItemType) => {
@@ -485,7 +529,26 @@ const DBList = ({
       {
         accessorKey: 'storage',
         header: () => t('storage'),
-        cell: ({ row }) => <>{row.original.totalStorage}Gi</>
+        cell: ({ row }) => (
+          <Flex alignItems={'center'}>
+            <Text>{row.original.totalStorage}Gi</Text>
+            {alerts[row.original.name]?.reason === 'disk is full' && (
+              <Flex
+                alignItems={'center'}
+                ml={'8px'}
+                borderRadius={'8px'}
+                px={'6px'}
+                py={'4px'}
+                bg={'#FEE4E2'}
+              >
+                <TriangleAlert size={12} color={'#991B1B'} />
+                <Text ml={'4px'} color={'#991B1B'}>
+                  {t('disk_is_full')}
+                </Text>
+              </Flex>
+            )}
+          </Flex>
+        )
       },
       {
         id: 'actions',
@@ -658,18 +721,16 @@ const DBList = ({
     ],
     [
       t,
+      onOpenRemarkModal,
       alerts,
-      SystemEnv,
-      theme,
-      router,
-      handleManageData,
-      handleStartApp,
-      handleRestartApp,
-      handlePauseApp,
+      SystemEnv?.MANAGED_DB_ENABLED,
       onOpenPause,
+      handleManageData,
+      router,
+      handleStartApp,
       onOpenUpdateModal,
-      setUpdateAppName,
-      setDelAppName
+      handleRestartApp,
+      handlePauseApp
     ]
   );
 
@@ -757,13 +818,7 @@ const DBList = ({
           h={'full'}
           variant={'solid'}
           leftIcon={<MyIcon name={'plus'} w={'18px'} h={'18px'} />}
-          onClick={() => {
-            track('module_view', {
-              module: 'database',
-              view_name: 'create_form'
-            });
-            router.push('/db/edit');
-          }}
+          onClick={handleCreateApp}
         >
           {t('create_db')}
         </Button>
@@ -844,6 +899,23 @@ const DBList = ({
         onClose={() => {
           setUpdateAppName('');
           onCloseUpdateModal();
+        }}
+      />
+      <InsufficientQuotaDialog
+        items={exceededQuotas}
+        open={exceededDialogOpen}
+        onOpenChange={(open) => {
+          // Refresh quota on open change
+          loadUserQuota();
+          setExceededDialogOpen(open);
+        }}
+        onConfirm={() => {
+          setExceededDialogOpen(false);
+          track('module_view', {
+            module: 'database',
+            view_name: 'create_form'
+          });
+          router.push('/db/edit');
         }}
       />
     </Box>

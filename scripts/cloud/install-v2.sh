@@ -92,8 +92,8 @@ fi
 
 export image_repository=${SEALOS_V2_IMAGE_REPO:-"labring/sealos"}
 export sealos_cloud_image_repository=${SEALOS_V2_CLOUD_IMAGE_REPO:-"labring"}
-export sealos_cloud_version=${SEALOS_V2_CLOUD_VERSION:-"v5.0.1"}
-export sealos_cli_version=${SEALOS_V2_CLI_VERSION:-"v5.0.1"}
+export sealos_cloud_version=${SEALOS_V2_CLOUD_VERSION:-"v5.1.0"}
+export sealos_cli_version=${SEALOS_V2_CLI_VERSION:-"v5.1.0"}
 export github_use_proxy=${SEALOS_V2_PROXY:-"false"}
 
 export max_pod=${SEALOS_V2_MAX_POD:-"120"}
@@ -125,8 +125,8 @@ Supported environment variables (all optional unless noted):
 General image & version settings
   SEALOS_V2_IMAGE_REPO         Image repo for runtime components (default: labring/sealos)
   SEALOS_V2_CLOUD_IMAGE_REPO   Image repo for Sealos Cloud image (default: labring)
-  SEALOS_V2_CLOUD_VERSION      Sealos Cloud image tag (default: v5.0.1)
-  SEALOS_V2_CLI_VERSION        Sealos CLI version to install (default: v5.0.1)
+  SEALOS_V2_CLOUD_VERSION      Sealos Cloud image tag (default: v5.1.0)
+  SEALOS_V2_CLI_VERSION        Sealos CLI version to install (default: v5.1.0)
   SEALOS_V2_PROXY              Use proxy for GitHub/images when "true" (default: false)
 
 Cluster / resource settings
@@ -271,7 +271,7 @@ install_pull_images() {
     pull_image "${image_registry}/${image_repository}/sealos-certs:${sealos_cert_version}"
 }
 
-COMMERCIAL_PROMPT_EN="You are installing the open source version of Sealos Cloud. Some features are missing. \nFor full functionality, please purchase the commercial edition: https://sealos.io/contact"
+COMMERCIAL_PROMPT_EN="This copy of Sealos Cloud is under the community license with feature limitations. \nFor a commercial license with full functionality, please contact us: https://sealos.io/contact"
 
 show_commercial_notice() {
   echo "=========================================================================================================="
@@ -445,6 +445,7 @@ run_cloud(){
 
     run_and_log "sealos run ${registry_domain}/${sealos_cloud_image_repository}/${cloudImages["account"]}:${sealos_cloud_version} \
     --env MONGO_URI=\"${varDatabaseMongodbURI}\" \
+    --env TRAFFIC_MONGO_URI=\"${varDatabaseMongodbURI}\" \
     --env cloudDomain=\"${varCloudDomain}\" \
     --env cloudPort=\"${varCloudPort}\" \
     --env DEFAULT_NAMESPACE=\"account-system\" \

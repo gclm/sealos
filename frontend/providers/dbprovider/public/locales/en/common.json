@@ -98,16 +98,6 @@
   "backup_settings": "Backup",
   "backup_success_tip": "The backup task has been successfully created",
   "backup_time": "Backup Timestamp",
-  "backups": {
-    "backup_running": "Running",
-    "db_backup_running": "Database backup in progress",
-    "stop_backup": "Stop Backup?",
-    "stop_backup_confirm": "Stop Backup",
-    "stop_backup_error": "Error stopping backup",
-    "stop_backup_success": "Backup stopped",
-    "stop_backup_tip": "Database backup in progress, stopping backup cannot be recovered, confirm to stop backup?",
-    "stop_update_cancel": "Cancel Update"
-  },
   "balance": "balance",
   "basic": "Basic",
   "billing_standards": "Pricing Guidelines",
@@ -118,8 +108,6 @@
   "case_insensitive": "Case Insensitive",
   "case_sensitive": "Case Sensitive",
   "change_log": "History",
-  "chat2db": "chat2db",
-  "chat2db_redirect_failed": "Redirect to Chat2DB failed",
   "click_for_details": "Click for details",
   "clipboard_read_failed": "Reading clipboard failed!",
   "clipboard_unsupported": "Browser does not support Clipper API",
@@ -164,6 +152,8 @@
   "create_db": "Create Database",
   "creation_time": "Creation Time",
   "current_connections": "Current Connections",
+  "chat2db": "chat2db",
+  "chat2db_redirect_failed": "Redirect to Chat2DB failed",
   "data_import": "Data Import",
   "data_migration_config": "Data Migration Settings",
   "database": "database",
@@ -295,13 +285,23 @@
   "Log Counts": "Log Counts",
   "log_number": "Log Number",
   "lost_file": "File Missing",
-  "manage_all_resources": "Manage",
   "manage_data": "Manage Data",
+  "manage_all_resources": "Manage",
   "manual_backup": "Manual Backup",
   "manual_backup_tip": "Tip: Backup during off-peak hours. Avoid DDL operations to prevent locking. Be patient if data size is large. Backup starts 1 min after confirmation.",
   "max_replicas": "Max Replicas: ",
   "memory": "Memory",
   "message": "Message",
+  "backups": {
+    "db_backup_running": "Database backup in progress",
+    "backup_running": "Running",
+    "stop_backup": "Stop Backup?",
+    "stop_backup_tip": "Database backup in progress, stopping backup cannot be recovered, confirm to stop backup?",
+    "stop_backup_confirm": "Stop Backup",
+    "stop_update_cancel": "Cancel Update",
+    "stop_backup_success": "Backup stopped",
+    "stop_backup_error": "Error stopping backup"
+  },
   "migrate": {
     "Incremental migration prompt information": "Enable \\\"Continuous Migration\\\" for incremental DB sync (disabled by default).",
     "mongo": {
@@ -444,5 +444,33 @@
   "within_1_hour": "Within 1 hour",
   "within_5_minutes": "Within 5 minutes",
   "yaml_file": "YAML",
-  "you_have_successfully_deployed_database": "You have successfully deployed and created a database!"
+  "you_have_successfully_deployed_database": "You have successfully deployed and created a database!",
+  "disk_is_full": "Disk is full",
+  "nodeport": "Port",
+  "traffic": "Traffic",
+  "nodeport_exceeds_quota": "NodePort Insufficient Resources: Your setting of {{requested}} ports exceeds the available {{limit}} ports ({{used}} ports used).",
+  "cpu_exceeds_quota": "CPU Insufficient Resources: Your setting of {{requested}} cores exceeds the available {{limit}} cores ({{used}} cores used).",
+  "memory_exceeds_quota": "Memory Insufficient Resources: Your setting of {{requested}} GB exceeds the available {{limit}} GB ({{used}} GB used).",
+  "storage_exceeds_quota": "Storage Insufficient Resources: Your setting of {{requested}} GB exceeds the available {{limit}} GB ({{used}} GB used).",
+  "please_upgrade_plan": {
+    "0": "Please ",
+    "1": "upgrade your plan",
+    "2": " or adjust settings."
+  },
+  "gpu": "GPU",
+  "insufficient_quota_dialog": {
+    "alert-title": "We can't create your database right now. You've used all of your available resources.",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "please_upgrade_plan": {
+      "1": "Please ",
+      "2": "upgrade your plan",
+      "3": " or delete unused apps occupying resources."
+    },
+    "quota_available": "Available: ",
+    "quota_in_use": "In use: ",
+    "quota_total": "Total: ",
+    "title": "Insufficient Resources"
+  },
+  "need_manual_table_creation": "You need to create the table manually according to the CSV file."
 }

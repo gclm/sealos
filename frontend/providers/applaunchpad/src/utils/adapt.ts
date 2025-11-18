@@ -23,7 +23,8 @@ import type {
   TAppSourceType,
   TransportProtocolType,
   DeployKindsType,
-  AppEditType
+  AppEditType,
+  PodStatusMapType
 } from '@/types/app';
 import {
   appStatusMap,
@@ -129,7 +130,7 @@ export const adaptPod = (pod: V1Pod): PodDetailType => {
     status: (() => {
       const container = pod.status?.containerStatuses || [];
       if (container.length > 0) {
-        const stateObj = container[0].state;
+        const stateObj = container[0]?.state;
         if (stateObj) {
           const status = [
             PodStatusEnum.running,
@@ -146,29 +147,39 @@ export const adaptPod = (pod: V1Pod): PodDetailType => {
       }
       return podStatusMap.waiting;
     })(),
-    containerStatus: (() => {
-      const container = pod.status?.containerStatuses || [];
-      if (container.length > 0) {
-        const lastStateObj = container[0].lastState;
-        if (lastStateObj) {
-          const status = [
-            PodStatusEnum.running,
-            PodStatusEnum.terminated,
-            PodStatusEnum.waiting
-          ].find((s) => lastStateObj[s]);
+    containerStatuses: (() => {
+      const containers = pod.status?.containerStatuses || [];
 
-          if (status) {
-            return status === PodStatusEnum.running
+      return containers.map((container) => {
+        const containerState = [
+          PodStatusEnum.running,
+          PodStatusEnum.terminated,
+          PodStatusEnum.waiting
+        ].find((s) => container.state?.[s]);
+
+        let status: PodStatusMapType = podStatusMap.waiting;
+        if (containerState) {
+          status =
+            containerState === PodStatusEnum.running
               ? podStatusMap[PodStatusEnum.running]
-              : { ...podStatusMap[status], ...lastStateObj[status] };
-          }
+              : { ...podStatusMap[containerState], ...container.state?.[containerState] };
         }
-      }
-      return podStatusMap.waiting;
+
+        const containerSpec = pod.spec?.containers.find((spec) => spec.name === container.name);
+
+        return {
+          name: container.name,
+          state: status,
+          cpuLimit: containerSpec?.resources?.limits?.cpu,
+          memoryLimit: containerSpec?.resources?.limits?.memory
+        };
+      });
     })(),
     nodeName: pod.spec?.nodeName || 'node name',
     ip: pod.status?.podIP || 'pod ip',
-    restarts: pod.status?.containerStatuses ? pod.status?.containerStatuses[0].restartCount : 0,
+    restarts: pod.status?.containerStatuses
+      ? (pod.status?.containerStatuses[0]?.restartCount ?? 0)
+      : 0,
     age: formatPodTime(pod.metadata?.creationTimestamp),
     usedCpu: {
       name: '',
