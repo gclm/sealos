@@ -8,6 +8,7 @@ import { immer } from 'zustand/middleware/immer';
 import AppStateManager from '../utils/ProcessManager';
 import { useDesktopConfigStore } from './desktopConfig';
 import { track } from '@sealos/gtm';
+import useSessionStore from './session';
 
 export class AppInfo {
   pid: number;
@@ -62,15 +63,25 @@ const useAppStore = create<TOSState>()(
         runningInfo: [],
         // present of highest layer
         currentAppPid: -1,
+        currentAppKey: '',
         maxZIndex: 10,
         launchQuery: {},
         autolaunch: '',
         autolaunchWorkspaceUid: '',
         runner: new AppStateManager([]),
         async init() {
-          const res = await request('/api/desktop/getInstalledApps');
+          const { isGuest } = useSessionStore.getState();
+          let apps: TApp[] = [];
+          if (isGuest()) {
+            const res = await request('/api/desktop/getDefaultApps');
+            apps = res?.data || [];
+          } else {
+            const res = await request('/api/desktop/getInstalledApps');
+            apps = res?.data || [];
+          }
+
           set((state) => {
-            state.installedApps = res?.data?.map((app: TApp) => new AppInfo(app, -1));
+            state.installedApps = apps.map((app: TApp) => new AppInfo(app, -1));
             state.runner.loadApps(state.installedApps.map((app) => app.key));
             state.maxZIndex = 10;
           });
@@ -80,7 +91,12 @@ const useAppStore = create<TOSState>()(
         closeAppById: (pid: number) => {
           useDesktopConfigStore.getState().temporarilyDisableAnimation();
           set((state) => {
+            const closingApp = state.runningInfo.find((item) => item.pid === pid);
             state.runner.closeApp(pid);
+            // If closing the current app, clear currentAppKey
+            if (closingApp && closingApp.key === state.currentAppKey) {
+              state.currentAppKey = '';
+            }
             // make sure the process is killed
             state.runningInfo = state.runningInfo.filter((item) => item.pid !== pid);
           });
@@ -89,6 +105,7 @@ const useAppStore = create<TOSState>()(
           set((state) => {
             state.runner.closeAppAll();
             state.runningInfo = [];
+            state.currentAppKey = '';
           });
         },
         installApp: (app: TApp) => {
@@ -110,6 +127,14 @@ const useAppStore = create<TOSState>()(
                 return _app;
               }
             });
+            // If updating the current app, update currentAppKey based on size
+            if (app.pid === state.currentAppPid) {
+              if (app.size === 'maximize') {
+                state.currentAppKey = app.key;
+              } else {
+                state.currentAppKey = '';
+              }
+            }
           });
         },
 
@@ -153,17 +178,33 @@ const useAppStore = create<TOSState>()(
           _app.zIndex = zIndex;
           _app.size = appSize;
           _app.isShow = true;
-          // add query to url
+
           if (_app.data?.url) {
-            if (query) _app.data.url = formatUrl(_app.data.url + pathname, query);
-            else if (raw) {
-              _app.data.url += `?${raw}`;
+            let finalUrl = _app.data.url;
+
+            if (pathname && pathname !== '/') {
+              const baseUrl = finalUrl.endsWith('/') ? finalUrl.slice(0, -1) : finalUrl;
+              const normalizedPath = pathname.startsWith('/') ? pathname : '/' + pathname;
+              finalUrl = baseUrl + normalizedPath;
             }
+
+            if (raw) {
+              finalUrl += finalUrl.includes('?') ? '&' : '?';
+              finalUrl += raw;
+            } else if (query) {
+              finalUrl = formatUrl(finalUrl, query);
+            }
+
+            _app.data.url = finalUrl;
           }
 
           set((state) => {
             state.runningInfo.push(_app);
             state.currentAppPid = _app.pid;
+            // Only save currentAppKey when app is maximized
+            if (appSize === 'maximize') {
+              state.currentAppKey = _app.key;
+            }
             state.maxZIndex = zIndex;
           });
 
@@ -228,6 +269,12 @@ const useAppStore = create<TOSState>()(
             _app.zIndex = zIndex;
             get().updateOpenedAppInfo(_app);
             state.currentAppPid = pid;
+            // Only save currentAppKey when app is maximized
+            if (_app.size === 'maximize') {
+              state.currentAppKey = _app.key;
+            } else {
+              state.currentAppKey = '';
+            }
             state.maxZIndex = zIndex;
           });
         },
@@ -258,7 +305,8 @@ const useAppStore = create<TOSState>()(
         partialize(state) {
           return {
             launchQuery: state.launchQuery,
-            autolaunch: state.autolaunch
+            autolaunch: state.autolaunch,
+            currentAppKey: state.currentAppKey
           };
         }
       }

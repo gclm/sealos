@@ -203,7 +203,7 @@ export default function Notification(props: NotificationProps) {
                   pr={'16px'}
                   borderBottom={'1px solid #F4F4F5'}
                 >
-                  <Text>{t('common:alert')}</Text>
+                  <Text>{t('common:notification_alert')}</Text>
                   <Flex alignItems={'center'} gap={'12px'} ml={'auto'} cursor={'pointer'}>
                     <Text
                       color={'#1C4EF5'}
@@ -307,10 +307,10 @@ export default function Notification(props: NotificationProps) {
                     >
                       <Image src="/images/no-notification.svg" alt="no-notification" />
                       <Text mt={'20px'} fontSize={'16px'} fontWeight={500} color={'#18181B'}>
-                        No notifications yet
+                        {t('common:no_notifications_yet')}
                       </Text>
                       <Text color={'#71717A'} mt={'4px'} fontSize={'14px'}>
-                        Recent notifications will be shown here. Everything is going well.
+                        {t('common:no_notifications_desc')}
                       </Text>
                     </Flex>
                   )}

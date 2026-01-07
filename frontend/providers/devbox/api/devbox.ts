@@ -29,10 +29,17 @@ export const delDevbox = (devboxName: string) => DELETE('/api/delDevbox', { devb
 
 export const restartDevbox = (data: { devboxName: string }) => POST('/api/restartDevbox', data);
 
-export const startDevbox = (data: { devboxName: string }) => POST('/api/startDevbox', data);
+export const startDevbox = (data: {
+  devboxName: string;
+  onlyIngress?: boolean;
+  networkType?: 'NodePort' | 'Tailnet' | 'SSHGate';
+}) => POST('/api/startDevbox', data);
 
-export const shutdownDevbox = (data: { devboxName: string; shutdownMode: ShutdownModeType }) =>
-  POST('/api/shutdownDevbox', data);
+export const shutdownDevbox = (data: {
+  devboxName: string;
+  shutdownMode: ShutdownModeType;
+  onlyIngress?: boolean;
+}) => POST('/api/shutdownDevbox', data);
 
 export const getDevboxVersionList = (devboxName: string, devboxUid: string) =>
   GET<DevboxVersionListItemType[]>('/api/getDevboxVersionList', { devboxName, devboxUid });
@@ -42,6 +49,7 @@ export const releaseDevbox = (data: {
   tag: string;
   releaseDes: string;
   devboxUid: string;
+  startDevboxAfterRelease: boolean;
 }) => POST('/api/releaseDevbox', data);
 
 export const editDevboxVersion = (data: { name: string; releaseDes: string }) =>
@@ -91,3 +99,71 @@ export const execCommandInDevboxPod = (data: {
 
 export const updateDevboxRemark = (data: { devboxName: string; remark: string }) =>
   POST('/api/updateDevboxRemark', data);
+
+export const uploadAndExtractFile = (
+  formData: FormData,
+  onUploadProgress?: (progressEvent: AxiosProgressEvent) => void
+) =>
+  POST<{ success: boolean }>('/api/uploadAndExtractFile', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    timeout: 0,
+    onUploadProgress
+  });
+
+export const getDevboxPorts = (devboxName: string) =>
+  GET<{
+    ports: {
+      portName: string;
+      number: number;
+      protocol: string;
+      networkName: string;
+      exposesPublicDomain: boolean;
+      publicDomain: string;
+      customDomain: string;
+      serviceName: string;
+      privateAddress: string;
+    }[];
+  }>(`/api/getDevboxPorts?devboxName=${devboxName}`);
+
+export const updateDevboxPorts = (
+  devboxName: string,
+  ports: {
+    portName?: string;
+    networkName?: string;
+    number: number;
+    protocol?: string;
+    exposesPublicDomain?: boolean;
+    publicDomain?: string;
+    customDomain?: string;
+  }[]
+) =>
+  POST<{
+    ports: {
+      portName: string;
+      number: number;
+      protocol: string;
+      networkName: string;
+      exposesPublicDomain: boolean;
+      publicDomain: string;
+      customDomain: string;
+      serviceName: string;
+      privateAddress: string;
+    }[];
+  }>(`/api/updateDevboxPorts`, { devboxName, ports });
+
+export const updateDevboxWebIDEPort = (devboxName: string, port: number) =>
+  POST<{
+    publicDomain: string;
+  }>(`/api/updateDevboxWebIDEPort`, { devboxName, port });
+
+export const autostartDevbox = (data: { devboxName: string; execCommand?: string }) =>
+  POST<{
+    devboxName: string;
+    autostartCreated: boolean;
+    jobRecreated: boolean;
+    resources: string[];
+  }>(`/api/v1/devbox/${data.devboxName}/autostart`, {
+    execCommand: data.execCommand
+  });

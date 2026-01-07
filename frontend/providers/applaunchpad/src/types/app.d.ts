@@ -82,7 +82,7 @@ export interface AppEditType {
     portName: string;
     port: number;
     protocol: TransportProtocolType;
-    appProtocol: ApplicationProtocolType;
+    appProtocol?: ApplicationProtocolType;
     openPublicDomain: boolean;
     publicDomain: string; //  domainPrefix
     customDomain: string; // custom domain
@@ -137,6 +137,7 @@ export type AppEditSyncedFields = Pick<
   | 'runCMD'
   | 'appName'
   | 'labels'
+  | 'gpu'
 >;
 
 export type TAppSourceType = 'app_store' | 'sealaf';
@@ -238,4 +239,6 @@ export type GpuNodeType = {
   'gpu.memory': number;
   'gpu.product': string;
   'gpu.alias': string;
+  'gpu.available': number;
+  'gpu.used': number;
 };

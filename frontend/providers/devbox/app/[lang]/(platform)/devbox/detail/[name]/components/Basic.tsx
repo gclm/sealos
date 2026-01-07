@@ -13,7 +13,7 @@ import { downLoadBlob, parseTemplateConfig, useCopyData } from '@/utils/tools';
 import GPUItem from '@/components/GPUItem';
 import { Button } from '@sealos/shadcn-ui/button';
 import { Separator } from '@sealos/shadcn-ui/separator';
-import { JetBrainsGuideData } from '@/components/IDEButton';
+import { SSHConnectionData } from '@/components/IDEButton';
 import SshConnectDrawer from '@/components/drawers/SshConnectDrawer';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@sealos/shadcn-ui/tooltip';
 
@@ -26,7 +26,7 @@ const Basic = () => {
   const { devboxDetail } = useDevboxStore();
 
   const [onOpenSsHConnect, setOnOpenSsHConnect] = useState(false);
-  const [sshConfigData, setSshConfigData] = useState<JetBrainsGuideData | null>(null);
+  const [sshConfigData, setSshConfigData] = useState<SSHConnectionData | null>(null);
 
   const handleOneClickConfig = useCallback(async () => {
     const result = await getTemplateConfig(devboxDetail?.templateUid as string);
@@ -199,39 +199,10 @@ const Basic = () => {
           </div>
         </div>
       </div>
-      {/* bottom: event */}
-      <div
-        className={cn(
-          'flex h-13 w-full flex-col items-start justify-center border-t border-zinc-100 px-6 py-3',
-          devboxDetail?.lastTerminatedReason && 'rounded-b-xl bg-red-50'
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              'text-sm text-zinc-900',
-              devboxDetail?.lastTerminatedReason && 'text-red-600'
-            )}
-          >
-            {t('last_event')}:
-          </span>
-          <div
-            className={cn(
-              'text-sm/5 text-zinc-600',
-              devboxDetail?.lastTerminatedReason && 'font-semibold text-red-600'
-            )}
-          >
-            {devboxDetail?.lastTerminatedReason ? (
-              <span>{devboxDetail?.lastTerminatedReason}</span>
-            ) : (
-              <span>{t('none_event_available')}</span>
-            )}
-          </div>
-        </div>
-      </div>
+
       {!!sshConfigData && (
         <SshConnectDrawer
-          jetbrainsGuideData={sshConfigData}
+          sshConnectionData={sshConfigData}
           open={onOpenSsHConnect}
           onSuccess={() => {
             setOnOpenSsHConnect(false);

@@ -341,7 +341,7 @@ export default function AccountCenter(props: AccountCenterProps) {
                       }
                     />
                   )}
-                  {conf.authConfig?.idp.sms.enabled && conf.authConfig.idp.sms.ali.enabled && (
+                  {conf.authConfig?.idp.sms.enabled && (
                     <ConfigItem
                       LeftElement={<Text>{t('common:phone')}</Text>}
                       RightElement={
@@ -364,14 +364,16 @@ export default function AccountCenter(props: AccountCenterProps) {
                                   : setPageState(PageState.PHONE_BIND);
                               }}
                             />
-                            {providerState.PHONE.isBinding && providerState.total > 1 && (
-                              <BindingModifyButton
-                                modifyBehavior={BINDING_STATE_MODIFY_BEHAVIOR.UNBINDING}
-                                onClick={() => {
-                                  setPageState(PageState.PHONE_UNBIND);
-                                }}
-                              />
-                            )}
+                            {providerState.PHONE.isBinding &&
+                              providerState.total > 1 &&
+                              conf.layoutConfig?.version !== 'cn' && (
+                                <BindingModifyButton
+                                  modifyBehavior={BINDING_STATE_MODIFY_BEHAVIOR.UNBINDING}
+                                  onClick={() => {
+                                    setPageState(PageState.PHONE_UNBIND);
+                                  }}
+                                />
+                              )}
                           </Flex>
                         </>
                       }

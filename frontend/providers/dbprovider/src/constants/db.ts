@@ -5,6 +5,7 @@ import {
   DBSourceType,
   DBType,
   ParameterConfigField,
+  ParameterFieldMetadata,
   PodDetailType,
   ReconfigStatusMapType
 } from '@/types/db';
@@ -29,6 +30,8 @@ export enum DBTypeEnum {
   postgresql = 'postgresql',
   mongodb = 'mongodb',
   mysql = 'apecloud-mysql',
+  // ! Uncomment this after KB 0.9 upgrade!
+  // notapemysql = 'mysql',
   redis = 'redis',
   kafka = 'kafka',
   qdrant = 'qdrant',
@@ -229,12 +232,12 @@ export const DBTypeList = [
   { id: DBTypeEnum.mysql, label: 'MySQL' },
   { id: DBTypeEnum.redis, label: 'Redis' },
   { id: DBTypeEnum.kafka, label: 'Kafka' },
-  { id: DBTypeEnum.milvus, label: 'Milvus' }
-  // { id: DBTypeEnum.qdrant, label: 'qdrant' },
-  // { id: DBTypeEnum.pulsar, label: 'pulsar' },
-  // { id: DBTypeEnum.clickhouse, label: 'clickhouse' }
-  // { id: DBTypeEnum.nebula, label: 'nebula' },
-  // { id: DBTypeEnum.weaviate, label: 'weaviate' }
+  { id: DBTypeEnum.milvus, label: 'Milvus' },
+  { id: DBTypeEnum.weaviate, label: 'Weaviate' }
+  // { id: DBTypeEnum.qdrant, label: 'Qdrant' },
+  // { id: DBTypeEnum.pulsar, label: 'Pulsar' },
+  // { id: DBTypeEnum.clickhouse, label: 'ClickHouse' },
+  // { id: DBTypeEnum.nebula, label: 'Nebula' }
 ];
 
 export const DBComponentNameMap: Record<DBType, Array<DBComponentsName>> = {
@@ -295,14 +298,14 @@ export const defaultDBEditValue: DBEditType = {
     week: [],
     hour: '12',
     minute: '00',
-    saveTime: 100,
+    saveTime: 14,
     saveType: 'd'
   },
   terminationPolicy: 'Delete',
   parameterConfig: {
     maxConnections: undefined,
     timeZone: 'UTC',
-    lowerCaseTableNames: '1',
+    lowerCaseTableNames: '0',
     isMaxConnectionsCustomized: false
   }
 };
@@ -326,6 +329,7 @@ export const RedisHAConfig = (ha = true) => {
 
 export const defaultDBDetail: DBDetailType = {
   ...defaultDBEditValue,
+  rawDbType: DBTypeEnum.postgresql,
   id: '',
   createTime: '2022/1/22',
   status: dbStatusMap.Creating,
@@ -519,24 +523,115 @@ export const BackupSupportedDBTypeList: DBType[] = [
   'redis'
 ];
 
-export const PARAMETER_CONFIG_OVERRIDES: Partial<Record<DBTypeEnum, ParameterConfigField[]>> = {
-  postgresql: [
-    {
-      name: 'log_timezone',
-      type: 'enum',
-      values: ['UTC', 'Asia/Shanghai']
-    },
-    {
-      name: 'timezone',
-      type: 'enum',
-      values: ['UTC', 'Asia/Shanghai']
+/**
+ * Versioned field override configuration.
+ * @description Key can be 'default' or specific version (e.g., '8.0', '5.7').
+ * Version-specific configs override corresponding items in default config.
+ */
+export const ParameterFieldOverrides: Partial<
+  Record<DBTypeEnum, Record<string, ParameterConfigField[]>>
+> = {
+  postgresql: {
+    default: [
+      {
+        name: 'log_timezone',
+        type: 'enum',
+        values: ['UTC', 'Asia/Shanghai']
+      },
+      {
+        name: 'timezone',
+        type: 'enum',
+        values: ['UTC', 'Asia/Shanghai']
+      }
+    ]
+  },
+  'apecloud-mysql': {
+    default: [
+      {
+        name: 'mysqld.default-time-zone',
+        type: 'enum',
+        values: ['UTC', 'Asia/Shanghai']
+      }
+    ]
+  }
+};
+
+/**
+ * Versioned field metadata configuration.
+ * @description Key can be 'default' or specific version (e.g., '8.0', '5.7').
+ * Version-specific metadata overrides corresponding items in default metadata.
+ * Default editable is false, only explicitly set editable: true fields are editable.
+ */
+export const ParameterFieldMetadataMap: Partial<
+  Record<DBTypeEnum, Record<string, Record<string, ParameterFieldMetadata>>>
+> = {
+  'apecloud-mysql': {
+    default: {
+      'mysqld.binlog_cache_size': { editable: true },
+      'mysqld.binlog_format': { editable: true },
+      'mysqld.binlog_order_commits': { editable: true },
+      'mysqld.binlog_row_image': { editable: true },
+      'mysqld.connect_timeout': { editable: true },
+      'mysqld.default_tmp_storage_engine': { editable: true },
+      'mysqld.host_cache_size': { editable: true },
+      'mysqld.innodb_buffer_pool_size': { editable: true },
+      'mysqld.innodb_io_capacity': { editable: true },
+      'mysqld.innodb_io_capacity_max': { editable: true },
+      'mysqld.innodb_purge_threads': { editable: true },
+      'mysqld.innodb_read_io_threads': { editable: true },
+      'mysqld.innodb_redo_log_capacity': { editable: true },
+      'mysqld.join_buffer_size': { editable: true },
+      'mysqld.key_buffer_size': { editable: true },
+      'mysqld.local_infile': { editable: true },
+      'mysqld.log_error_verbosity': { editable: true },
+      'mysqld.log_output': { editable: true },
+      'mysqld.log_statements_unsafe_for_binlog': { editable: true },
+      'mysqld.long_query_time': { editable: true },
+      'mysqld.max_connections': { editable: true },
+      'mysqld.max_prepared_stmt_count': { editable: true },
+      'mysqld.read_buffer_size': { editable: true },
+      'mysqld.read_rnd_buffer_size': { editable: true },
+      'mysqld.sort_buffer_size': { editable: true },
+      'mysqld.sql_mode': { editable: true },
+      'mysqld.table_open_cache': { editable: true },
+      'mysqld.thread_cache_size': { editable: true },
+      'mysqld.default-time-zone': { editable: true }
     }
-  ],
-  'apecloud-mysql': [
-    {
-      name: 'mysqld.default-time-zone',
-      type: 'enum',
-      values: ['UTC', 'Asia/Shanghai']
+  },
+  postgresql: {
+    default: {
+      archive_mode: { editable: true },
+      autovacuum_max_workers: { editable: true },
+      autovacuum_work_mem: { editable: true },
+      backend_flush_after: { editable: true },
+      bgwriter_delay: { editable: true },
+      bgwriter_flush_after: { editable: true },
+      bgwriter_lru_maxpages: { editable: true },
+      bgwriter_lru_multiplier: { editable: true },
+      huge_pages: { editable: true },
+      max_connections: { editable: true },
+      max_files_per_process: { editable: true },
+      max_locks_per_transaction: { editable: true },
+      max_parallel_workers: { editable: true },
+      max_pred_locks_per_page: { editable: true },
+      max_pred_locks_per_relation: { editable: true },
+      max_pred_locks_per_transaction: { editable: true },
+      max_prepared_transactions: { editable: true },
+      max_replication_slots: { editable: true },
+      max_stack_depth: { editable: true },
+      max_wal_senders: { editable: true },
+      max_worker_processes: { editable: true },
+      shared_buffers: { editable: true },
+      shared_preload_libraries: { editable: true },
+      superuser_reserved_connections: { editable: true },
+      wal_buffers: { editable: true },
+      wal_level: { editable: true },
+      wal_init_zero: { editable: true }
     }
-  ]
+  },
+  mongodb: {
+    default: {
+      // No params are allowed to be modified for MongoDB
+    }
+  }
 };

@@ -5,9 +5,17 @@ import { useTranslations, useLocale } from 'next-intl';
 
 import { cn } from '@sealos/shadcn-ui';
 import { useEnvStore } from '@/stores/env';
+import { useDevboxStore } from '@/stores/devbox';
 import { versionSchema, versionErrorEnum } from '@/utils/validate';
 import { DevboxListItemTypeV2, DevboxVersionListItemType } from '@/types/devbox';
-import { releaseDevbox, shutdownDevbox, startDevbox, getDevboxVersionList } from '@/api/devbox';
+import { DevboxStatusEnum } from '@/constants/devbox';
+import {
+  releaseDevbox,
+  shutdownDevbox,
+  startDevbox,
+  getDevboxVersionList,
+  getDevboxByName
+} from '@/api/devbox';
 import { useErrorMessage } from '@/hooks/useErrorMessage';
 
 import {
@@ -38,6 +46,7 @@ const ReleaseDialog = ({ onClose, onSuccess, devbox, open }: ReleaseDialogProps)
   const { getErrorMessage } = useErrorMessage();
 
   const { env } = useEnvStore();
+  const { setDevboxDetail } = useDevboxStore();
 
   const [tag, setTag] = useState('');
   const [loading, setLoading] = useState(false);
@@ -48,13 +57,18 @@ const ReleaseDialog = ({ onClose, onSuccess, devbox, open }: ReleaseDialogProps)
 
   useEffect(() => {
     if (open) {
+      setTag('');
+      setReleaseDes('');
+      setTagError(null);
+      setIsAutoStart(devbox.status.value === 'Running');
+
       getDevboxVersionList(devbox.name, devbox.id)
         .then((list) => {
           setVersionList(list);
         })
         .catch(console.error);
     }
-  }, [open, devbox.name, devbox.id]);
+  }, [open, devbox.name, devbox.id, devbox.status.value]);
 
   const validateTag = (value: string) => {
     if (!value) {
@@ -78,36 +92,78 @@ const ReleaseDialog = ({ onClose, onSuccess, devbox, open }: ReleaseDialogProps)
   const handleSubmit = () => {
     const error = validateTag(tag);
     setTagError(error);
-    if (!error) {
-      handleReleaseDevbox(isAutoStart);
+    if (error) {
+      return;
     }
+
+    const isDuplicate = versionList.some((version) => version.tag === tag);
+    if (isDuplicate) {
+      setTagError(t('tag_already_exists'));
+      return;
+    }
+
+    handleReleaseDevbox(isAutoStart);
   };
 
   const handleReleaseDevbox = useCallback(
-    async (enableRestartMachine: boolean) => {
+    async (startDevboxAfterRelease: boolean) => {
       try {
         setLoading(true);
 
-        // 1.pause devbox
-        if (devbox.status.value === 'Running') {
+        const isRunning = devbox.status.value === 'Running';
+
+        // Step 1: Shutdown devbox if it's running (required before release)
+        if (isRunning) {
+          toast.info(t('auto_shutting_down'));
+
           await shutdownDevbox({
             devboxName: devbox.name,
             shutdownMode: 'Stopped'
           });
-          // wait 3s
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+
+          // Poll devbox status for 2 minutes to ensure it's stopped
+          const timeout = 2 * 60 * 1000; // 2 minutes
+          const pollInterval = 3000; // 3 seconds
+          const startTime = Date.now();
+          let isStopped = false;
+
+          while (Date.now() - startTime < timeout) {
+            const devboxDetail = await getDevboxByName(devbox.name);
+            //NOTE: Here we use state not status.value to check if stopped
+            if (devboxDetail.state === DevboxStatusEnum.Stopped) {
+              isStopped = true;
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+          }
+
+          if (!isStopped) {
+            throw new Error(t('devbox_shutdown_timeout'));
+          }
         }
-        // 2.release devbox
+
+        // Step 2: Release devbox
         await releaseDevbox({
           devboxName: devbox.name,
           tag,
           releaseDes,
-          devboxUid: devbox.id
+          devboxUid: devbox.id,
+          startDevboxAfterRelease
         });
-        // 3.start devbox
-        if (enableRestartMachine) {
-          await startDevbox({ devboxName: devbox.name });
+
+        // Step 3: If auto start is enabled, Go backend will start devbox
+        // but won't modify ingress, so we need to resume ingress manually
+        if (startDevboxAfterRelease) {
+          await startDevbox({
+            devboxName: devbox.name,
+            onlyIngress: true
+          });
+          // Wait for Go backend to start devbox
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          // Refresh devbox detail to update status and restart polling
+          await setDevboxDetail(devbox.name, env.sealosDomain);
         }
+
         toast.success(t('submit_release_successful'));
         track({
           event: 'release_create',
@@ -133,7 +189,9 @@ const ReleaseDialog = ({ onClose, onSuccess, devbox, open }: ReleaseDialogProps)
       onSuccess,
       onClose,
       versionList.length,
-      getErrorMessage
+      getErrorMessage,
+      setDevboxDetail,
+      env.sealosDomain
     ]
   );
 
@@ -222,13 +280,17 @@ const ReleaseDialog = ({ onClose, onSuccess, devbox, open }: ReleaseDialogProps)
           {/* description */}
           <div className="flex w-full flex-col items-start gap-2">
             <Label htmlFor="description">{t('version_description')}</Label>
-            <Textarea
-              id="description"
-              value={releaseDes}
-              onChange={(e) => setReleaseDes(e.target.value)}
-              placeholder={t('enter_version_description')}
-              className="w-[462px]"
-            />
+            <div className="w-full">
+              <Textarea
+                id="description"
+                value={releaseDes}
+                onChange={(e) => setReleaseDes(e.target.value)}
+                placeholder={t('enter_version_description')}
+                className="w-[462px]"
+                maxLength={500}
+              />
+              <div className="mt-1 text-right text-sm text-gray-500">{releaseDes.length}/500</div>
+            </div>
           </div>
         </div>
 

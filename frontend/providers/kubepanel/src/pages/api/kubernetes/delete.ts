@@ -1,11 +1,11 @@
-import axios from 'axios';
 import { hasTypedProperty } from '@/k8slens/utilities';
 import { getApiUrl } from '@/services/backend/api';
 import { authKubeConfig } from '@/services/backend/auth';
 import { ErrnoCode, buildErrno } from '@/services/backend/error';
 import { handlerAxiosError, sendErrorResponse } from '@/services/backend/response';
 import { DeleteQuery, DeleteResponse } from '@/types/api/kubenertes';
-import { isString, isObject } from 'lodash';
+import axios from 'axios';
+import { isObject, isString } from 'lodash';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 function isDeleteQuery(query: unknown): query is DeleteQuery {
@@ -22,16 +22,35 @@ export default async function handler(req: NextApiRequest, resp: NextApiResponse
       throw buildErrno('Request Method is not allowed', ErrnoCode.UserMethodNotAllow);
 
     const { namespace, config } = authKubeConfig(req.headers);
+
     if (!isDeleteQuery(req.query))
       throw buildErrno(`There has some invalid query in ${req.query}`, ErrnoCode.UserBadRequest);
 
     const { kind, name } = req.query;
     const url = getApiUrl(kind, namespace, name);
 
-    const res = await axios.delete(url, config);
+    let resourceData;
+    try {
+      const getRes = await axios.get(url, config);
+      resourceData = getRes.data;
+    } catch (getErr: any) {
+      if (getErr.response?.status !== 404) {
+        throw getErr;
+      }
+    }
+
+    const deleteConfig = {
+      ...config,
+      params: {
+        propagationPolicy: 'Background'
+      }
+    };
+
+    const res = await axios.delete(url, deleteConfig);
+
     resp.status(res.status).json({
       code: res.status,
-      data: res.data
+      data: resourceData || res.data
     });
   } catch (err: any) {
     sendErrorResponse(

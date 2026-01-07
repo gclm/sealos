@@ -4,8 +4,7 @@ import useAppStore from '@/stores/app';
 import { useConfigStore } from '@/stores/config';
 import { useDesktopConfigStore } from '@/stores/desktopConfig';
 import { WindowSize } from '@/types';
-import { Box, Flex, Image } from '@chakra-ui/react';
-import { useMessage } from '@sealos/ui';
+import { Box, Flex, Image, Button, Text } from '@chakra-ui/react';
 import { useTranslation } from 'next-i18next';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,6 +16,7 @@ import styles from './index.module.css';
 import NeedToMerge from '../account/AccountCenter/mergeUser/NeedToMergeModal';
 import { useRealNameAuthNotification } from '../account/RealNameModal';
 import useSessionStore from '@/stores/session';
+import LoginModal from '@/components/LoginModal';
 import { useQuery } from '@tanstack/react-query';
 import { getAmount, UserInfo } from '@/api/auth';
 import OnlineServiceButton from './serviceButton';
@@ -39,27 +39,56 @@ export const blurBackgroundStyles = {
 };
 
 export default function Desktop() {
+  const { t } = useTranslation();
   const { isAppBar } = useDesktopConfigStore();
   const {
     installedApps: apps,
     runningInfo,
     openApp,
     setToHighestLayerById,
-    closeAppById
+    closeAppById,
+    setAutoLaunch,
+    currentAppKey
   } = useAppStore();
   const backgroundImage = useConfigStore().layoutConfig?.backgroundImage;
   const { backgroundImage: desktopBackgroundImage } = useAppDisplayConfigStore();
   const { realNameAuthNotification } = useRealNameAuthNotification();
   const { layoutConfig, cloudConfig } = useConfigStore();
   const { session } = useSessionStore();
+  const { isGuest, openGuestLoginModal, showGuestLoginModal, closeGuestLoginModal } =
+    useSessionStore();
   const { commonConfig } = useConfigStore();
   const realNameAuthNotificationIdRef = useRef<string | number | undefined>();
   const [isClient, setIsClient] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(true);
   const guideModal = useGuideModalStore();
 
   useEffect(() => {
     setIsClient(true);
   }, []);
+
+  // Restore current app after page refresh
+  useEffect(() => {
+    if (!isClient || apps.length === 0) {
+      return;
+    }
+
+    if (currentAppKey) {
+      const savedApp = apps.find((app) => app.key === currentAppKey);
+      const isAppRunning = runningInfo.some((app) => app.key === currentAppKey);
+
+      if (savedApp && !isAppRunning) {
+        openApp(savedApp).then(() => {
+          // Wait a bit for the app to render before hiding loading
+          setTimeout(() => setIsRestoring(false), 100);
+        });
+        return;
+      }
+    }
+
+    // No app to restore or app already running
+    setIsRestoring(false);
+  }, [currentAppKey, apps, runningInfo, openApp, isClient]);
 
   const infoData = useQuery({
     queryFn: UserInfo,
@@ -139,32 +168,62 @@ export default function Desktop() {
     [closeDesktopApp, guideModal]
   );
 
+  const handleRequestLogin = useCallback(
+    (data: { appKey: string; pathname: string; query: Record<string, string> }) => {
+      console.log('Guest Mode: Received request_login from Brain:', data);
+      if (data?.appKey) {
+        const launchQuery = {
+          pathname: data.pathname || '/',
+          raw: new URLSearchParams(data.query || {}).toString() || ''
+        };
+        console.log('Guest Mode: Saving autolaunch state:', data.appKey, launchQuery);
+        setAutoLaunch(data.appKey, launchQuery, undefined);
+      }
+      openGuestLoginModal();
+    },
+    [openGuestLoginModal, setAutoLaunch]
+  );
+
   useEffect(() => {
-    // Initialize client SDK
-    const cleanup = createMasterAPP({
+    const cleanupMaster = createMasterAPP({
       allowedOrigins: cloudConfig?.allowedOrigins || ['*'],
-      getWorkspaceQuotaApi: () => {
-        console.log('getWorkspaceQuotaApi called via SDK');
+      getWorkspaceQuotaApi: async () => {
         return getWorkspaceQuota().then((res) => res.data?.quota ?? []);
+      },
+      getHostConfigApi: async () => {
+        const config = useConfigStore.getState();
+        return {
+          cloud: {
+            domain: config.cloudConfig?.domain || '',
+            port: config.cloudConfig?.port || '',
+            regionUid: config.cloudConfig?.regionUID || ''
+          },
+          features: {
+            subscription: config.layoutConfig?.common?.subscriptionEnabled || false
+          }
+        };
       }
     });
-    return cleanup;
-  }, [cloudConfig?.allowedOrigins]);
+    const cleanups = [
+      masterApp?.addEventListen('openDesktopApp', openDesktopApp),
+      masterApp?.addEventListen('closeDesktopApp', closeDesktopApp),
+      masterApp?.addEventListen('requestLogin', handleRequestLogin),
+      masterApp?.addEventListen('quitGuide', quitGuide)
+    ].filter(Boolean) as Array<() => void>;
 
-  useEffect(() => {
-    const cleanup = masterApp?.addEventListen('openDesktopApp', openDesktopApp);
-    return cleanup;
-  }, [openDesktopApp]);
-
-  useEffect(() => {
-    const cleanup = masterApp?.addEventListen('closeDesktopApp', closeDesktopApp);
-    return cleanup;
-  }, [closeDesktopApp]);
-
-  useEffect(() => {
-    const cleanup = masterApp?.addEventListen('quitGuide', quitGuide);
-    return cleanup;
-  }, [quitGuide]);
+    return () => {
+      cleanups.forEach((fn) => fn());
+      cleanupMaster?.();
+    };
+  }, [
+    cloudConfig?.allowedOrigins,
+    openDesktopApp,
+    closeDesktopApp,
+    openGuestLoginModal,
+    setAutoLaunch,
+    quitGuide,
+    handleRequestLogin
+  ]);
 
   useEffect(() => {
     if (infoData.isSuccess && commonConfig?.realNameAuthEnabled && account?.data?.balance) {
@@ -193,6 +252,48 @@ export default function Desktop() {
     }
   }, []);
 
+  // Show loading during app restoration
+  if (isRestoring) {
+    return (
+      <Box
+        id="desktop"
+        className={styles.desktop}
+        position={'relative'}
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+      >
+        <Box
+          position="absolute"
+          top="0"
+          left="0"
+          right="0"
+          bottom="0"
+          zIndex={-10}
+          overflow="hidden"
+        >
+          <Image
+            src={backgroundImage || desktopBackgroundImage || '/images/bg-light.svg'}
+            alt="background"
+            width="100%"
+            height="100vh"
+            objectFit="cover"
+            objectPosition="bottom"
+          />
+        </Box>
+
+        {/* opened apps - need to render during restore */}
+        {runningInfo.map((process) => {
+          return (
+            <AppWindow key={process.pid} style={{ height: '100vh' }} pid={process.pid}>
+              <IframeWindow pid={process.pid} />
+            </AppWindow>
+          );
+        })}
+      </Box>
+    );
+  }
+
   return (
     <Box id="desktop" className={styles.desktop} position={'relative'}>
       <Box position="absolute" top="0" left="0" right="0" bottom="0" zIndex={-10} overflow="hidden">
@@ -206,7 +307,7 @@ export default function Desktop() {
         />
       </Box>
 
-      {isClient && layoutConfig?.customerServiceURL && <OnlineServiceButton />}
+      {!isGuest() && isClient && layoutConfig?.customerServiceURL && <OnlineServiceButton />}
       <ChakraIndicator />
       {layoutConfig?.common?.bannerEnabled && (
         <SaleBanner isBannerVisible={isBannerVisible} setIsBannerVisible={setIsBannerVisible} />
@@ -214,9 +315,35 @@ export default function Desktop() {
 
       <GlobalNotification />
 
-      <Flex height={'68px'} px={{ base: '16px', md: '32px' }}>
-        <Account />
-      </Flex>
+      {isClient && !isGuest() && (
+        <Flex height={'68px'} px={{ base: '16px', md: '32px' }}>
+          <Account />
+        </Flex>
+      )}
+
+      {isClient && isGuest() && (
+        <Flex
+          height="68px"
+          px={{ base: '16px', md: '32px' }}
+          alignItems="center"
+          justifyContent="space-between"
+          borderBottom="1px solid"
+          borderColor="gray.200"
+          bg="white"
+        >
+          <Flex alignItems="center" gap="12px">
+            <Text fontSize="18px" fontWeight="600" color="gray.800">
+              {t('v2:guest_mode')}
+            </Text>
+            <Text fontSize="14px" color="gray.500">
+              {t('v2:guest_mode_login_tip')}
+            </Text>
+          </Flex>
+          <Button onClick={openGuestLoginModal} colorScheme="blue">
+            {t('v2:login_sign_up')}
+          </Button>
+        </Flex>
+      )}
 
       <Flex
         width={'100%'}
@@ -227,115 +354,12 @@ export default function Desktop() {
         mx={'auto'}
         position={'relative'}
       >
-        {/* monitor  */}
-        {/* <Flex
-          flex={'0 0 250px'}
-          flexDirection={'column'}
-          display={{
-            base: 'none',
-            xl: 'flex'
-          }}
-          gap={'8px'}
-        >
-          {layoutConfig?.common.aiAssistantEnabled && <Assistant />}
-          <Monitor />
-          <Warn />
-        </Flex> */}
-
         <Flex flexDirection={'column'} gap={'8px'} flex={1} position={'relative'} width={'100%'}>
           <Apps />
         </Flex>
-
-        {/* <Box position={'relative'}>
-          {showAccount && (
-            <Box
-              position={'fixed'}
-              inset={0}
-              zIndex={2}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowAccount(false);
-              }}
-            ></Box>
-          )}
-          <Box
-            display={{ base: showAccount ? 'flex' : 'none', lg: 'flex' }}
-            position={{ base: 'absolute', lg: 'relative' }}
-            right={{ base: '0px', lg: 'auto' }}
-            top={{ base: '0px', lg: 'auto' }}
-            flexDirection={'column'}
-            gap={'8px'}
-            flex={'0 0 266px'}
-            width={'266px'}
-            h={'full'}
-            zIndex={3}
-          >
-            <Account />
-            <Cost />
-          </Box>
-        </Box> */}
-
-        {/* onboarding  */}
-        {/* {isClient && (
-          <Box>
-            {desktopGuide && (
-              <>
-                <UserGuide />
-                <Box
-                  position="fixed"
-                  top="0"
-                  left="0"
-                  width="100%"
-                  height="100%"
-                  backgroundColor="rgba(0, 0, 0, 0.7)"
-                  zIndex="11000"
-                />
-              </>
-            )}
-            {taskComponentState === 'modal' && tasks?.length > 0 && (
-              <TaskModal
-                isOpen={taskComponentState === 'modal'}
-                onClose={handleCloseTaskModal}
-                tasks={tasks || []}
-                onTaskClick={(task) => {
-                  switch (task.taskType) {
-                    case 'LAUNCHPAD':
-                      openDesktopApp({
-                        appKey: 'system-applaunchpad',
-                        pathname: '/app/edit',
-                        messageData: {
-                          type: 'InternalAppCall'
-                        }
-                      });
-                      break;
-                    case 'DATABASE':
-                      openDesktopApp({
-                        appKey: 'system-dbprovider',
-                        pathname: '/db/edit',
-                        messageData: { type: 'InternalAppCall' }
-                      });
-                      break;
-                    case 'APPSTORE':
-                      openDesktopApp({
-                        appKey: 'system-template',
-                        pathname: '/',
-                        messageData: {
-                          type: 'InternalAppCall'
-                        }
-                      });
-                      break;
-                    default:
-                      console.log(task.taskType);
-                  }
-                  setTaskComponentState('button');
-                }}
-              />
-            )}
-          </Box>
-        )} */}
       </Flex>
 
-      {isAppBar ? <AppDock /> : <FloatButton />}
+      {!isGuest() && (isAppBar ? <AppDock /> : <FloatButton />)}
 
       <GuideModal />
 
@@ -347,8 +371,10 @@ export default function Desktop() {
           </AppWindow>
         );
       })}
-      {/* modal */}
+
       <NeedToMerge />
+
+      {isGuest() && <LoginModal isOpen={showGuestLoginModal} onClose={closeGuestLoginModal} />}
     </Box>
   );
 }

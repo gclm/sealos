@@ -1,6 +1,17 @@
+'use client';
+
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
-import { BookOpen, LayoutTemplate, Plus, Search } from 'lucide-react';
+import {
+  BookOpen,
+  LayoutTemplate,
+  Plus,
+  Search,
+  FolderArchive,
+  Package,
+  Github
+} from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 
 import { useRouter } from '@/i18n';
 import { useEnvStore } from '@/stores/env';
@@ -10,35 +21,42 @@ import { destroyDriver, startDriver, startGuide2 } from '@/hooks/driver';
 
 import { Input } from '@sealos/shadcn-ui/input';
 import { Button } from '@sealos/shadcn-ui/button';
-import { useUserStore } from '@/stores/user';
-import { WorkspaceQuotaItem } from '@/types/workspace';
-import { InsufficientQuotaDialog } from '@/components/dialogs/InsufficientQuotaDialog';
-import { useQuery } from '@tanstack/react-query';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@sealos/shadcn-ui/dropdown-menu';
+import { useQuotaGuarded } from '@sealos/shared';
+import { ImportType } from '@/types/import';
+import GitImportDrawer from '@/components/drawers/GitImportDrawer';
+import LocalImportDrawer from '@/components/drawers/LocalImportDrawer';
 
 export default function Header({ onSearch }: { onSearch: (value: string) => void }) {
   const router = useRouter();
   const locale = useLocale();
   const t = useTranslations();
+  const searchParams = useSearchParams();
   const { env } = useEnvStore();
   const { guide2, setGuide2 } = useGuideStore();
   const isClientSide = useClientSideValue(true);
+  const [importDrawerType, setImportDrawerType] = useState<ImportType | null>(null);
+  const [importDrawerTypeToSet, setImportDrawerTypeToSet] = useState<ImportType | null>(null);
 
-  const userStore = useUserStore();
-  const [quotaLoaded, setQuotaLoaded] = useState(false);
-  const [exceededQuotas, setExceededQuotas] = useState<WorkspaceQuotaItem[]>([]);
-  const [exceededDialogOpen, setExceededDialogOpen] = useState(false);
-
-  // load user quota on load
-  useEffect(() => {
-    if (quotaLoaded) return;
-
-    userStore.loadUserQuota();
-    setQuotaLoaded(true);
-  }, [quotaLoaded, userStore]);
-
-  const handleGotoTemplate = useCallback(() => {
-    router.push('/template?tab=public');
-  }, [router]);
+  const handleGotoTemplate = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: 1,
+        memory: 1,
+        traffic: true
+      },
+      immediate: false,
+      allowContinue: true
+    },
+    () => {
+      router.push('/template?tab=public');
+    }
+  );
 
   const handleGotoDocs: any = () => {
     if (locale === 'zh') {
@@ -48,32 +66,66 @@ export default function Header({ onSearch }: { onSearch: (value: string) => void
     }
   };
 
-  const handleCreateDevbox = useCallback((): void => {
-    setGuide2(true);
-    destroyDriver();
-
-    const exceededQuotaItems = userStore.checkExceededQuotas({
-      cpu: 1,
-      memory: 1,
-      ...(userStore.session?.subscription?.type === 'PAYG' ? {} : { traffic: 1 })
-    });
-
-    console.log('exceededQuotaItems', exceededQuotaItems);
-    if (exceededQuotaItems.length > 0) {
-      setExceededQuotas(exceededQuotaItems);
-      setExceededDialogOpen(true);
-      return;
-    } else {
-      setExceededQuotas([]);
+  const handleCreateDevbox = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: 1,
+        memory: 1,
+        traffic: true
+      },
+      immediate: false,
+      allowContinue: true
+    },
+    () => {
+      setGuide2(true);
+      destroyDriver();
       handleGotoTemplate();
     }
-  }, [setGuide2, handleGotoTemplate, userStore]);
+  );
+
+  const guardedOpenImportDrawer = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: 1,
+        memory: 1,
+        traffic: true
+      },
+      immediate: false,
+      allowContinue: false
+    },
+    () => {
+      setImportDrawerType(importDrawerTypeToSet);
+    }
+  );
+
+  const handleOpenImportDrawer = useCallback(
+    (type: ImportType) => {
+      setImportDrawerTypeToSet(type);
+      guardedOpenImportDrawer();
+    },
+    [importDrawerType]
+  );
+
+  const handleImportSuccess = useCallback(
+    (devboxName: string) => {
+      setImportDrawerType(null);
+      router.push(`/devbox/detail/${devboxName}`);
+    },
+    [router]
+  );
 
   useEffect(() => {
     if (!guide2 && isClientSide) {
       startDriver(startGuide2(t, handleCreateDevbox));
     }
   }, [guide2, isClientSide, handleCreateDevbox, t]);
+
+  useEffect(() => {
+    const from = searchParams.get('from');
+    if (from === 'import' && isClientSide) {
+      setImportDrawerType('git');
+    }
+  }, [searchParams, isClientSide]);
 
   return (
     <>
@@ -103,22 +155,62 @@ export default function Header({ onSearch }: { onSearch: (value: string) => void
             <LayoutTemplate className="h-4 w-4" />
             <span className="leading-5"> {t('scan_templates')}</span>
           </Button>
-          <Button className="list-create-app-button h-10" onClick={handleCreateDevbox}>
-            <Plus className="h-4 w-4" />
-            <span className="leading-5">{t('create_devbox')}</span>
-          </Button>
+          {env.enableImportFeature === 'true' ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="list-create-app-button h-10 gap-2">
+                  <Plus className="h-4 w-4" />
+                  <span className="leading-5">{t('create_devbox')}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 space-y-1 p-2">
+                <p className="px-1 py-1.5 text-xs font-medium text-zinc-500">
+                  {t('creation_method')}
+                </p>
+                <DropdownMenuItem
+                  onClick={handleCreateDevbox}
+                  className="cursor-pointer rounded-lg px-2 py-2.5 hover:bg-zinc-100 focus:bg-zinc-100"
+                >
+                  <Package className="mr-2 h-4 w-4 text-zinc-500" />
+                  <span className="text-sm font-normal text-zinc-900">{t('choose_runtime')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleOpenImportDrawer('git')}
+                  className="cursor-pointer rounded-lg px-2 py-2.5 hover:bg-zinc-100 focus:bg-zinc-100"
+                >
+                  <Github className="mr-2 h-4 w-4 text-zinc-500" />
+                  <span className="text-sm font-normal text-zinc-900">{t('import_from_git')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleOpenImportDrawer('local')}
+                  className="cursor-pointer rounded-lg px-2 py-2.5 hover:bg-zinc-100 focus:bg-zinc-100"
+                >
+                  <FolderArchive className="mr-2 h-4 w-4 text-zinc-500" />
+                  <span className="text-sm font-normal text-zinc-900">
+                    {t('import_from_local')}
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button className="list-create-app-button h-10 gap-2" onClick={handleCreateDevbox}>
+              <Plus className="h-4 w-4" />
+              <span className="leading-5">{t('create_devbox')}</span>
+            </Button>
+          )}
         </div>
       </div>
 
-      <InsufficientQuotaDialog
-        items={exceededQuotas}
-        open={exceededDialogOpen}
-        onOpenChange={(open) => {
-          // Refresh quota on open change
-          userStore.loadUserQuota();
-          setExceededDialogOpen(open);
-        }}
-        onConfirm={handleGotoTemplate}
+      <GitImportDrawer
+        open={importDrawerType === 'git'}
+        onClose={() => setImportDrawerType(null)}
+        onSuccess={handleImportSuccess}
+      />
+
+      <LocalImportDrawer
+        open={importDrawerType === 'local'}
+        onClose={() => setImportDrawerType(null)}
+        onSuccess={handleImportSuccess}
       />
     </>
   );

@@ -9,29 +9,57 @@ import { DevboxListItemTypeV2 } from '@/types/devbox';
 
 export const useDevboxList = () => {
   const router = useRouter();
-  const [refresh, setFresh] = useState(false);
-  const { devboxList, setDevboxList, loadAvgMonitorData, intervalLoadPods } = useDevboxStore();
-  const { isInitialized } = useGlobalStore();
-  const list = useRef<DevboxListItemTypeV2[]>(devboxList);
+  const [list, setList] = useState<DevboxListItemTypeV2[]>([]);
+  const setDevboxList = useDevboxStore((state) => state.setDevboxList);
+  const loadAvgMonitorData = useDevboxStore((state) => state.loadAvgMonitorData);
+  const isInitialized = useGlobalStore((state) => state.isInitialized);
+  const isImporting = useGlobalStore((state) => state.isImporting);
+  const prevListRef = useRef<DevboxListItemTypeV2[]>([]);
 
   const { isLoading, refetch: refetchDevboxList } = useQuery(['devboxListQuery'], setDevboxList, {
     enabled: isInitialized,
+    refetchInterval: () => {
+      const devboxList = useDevboxStore.getState().devboxList;
+      const allStoppedOrShutdown = devboxList.every(
+        (devbox) => devbox.status.value === 'Stopped' || devbox.status.value === 'Shutdown'
+      );
+      return allStoppedOrShutdown ? false : 3000;
+    },
     onSettled(res) {
       if (!res) return;
-      refreshList(res);
+      refreshList();
     }
   });
 
-  const refreshList = useCallback(
-    (res = devboxList) => {
-      list.current = res;
-      setFresh((state) => !state);
-      return null;
-    },
-    [devboxList]
-  );
+  const hasDataChanged = useCallback((newList: DevboxListItemTypeV2[]) => {
+    if (prevListRef.current.length !== newList.length) return true;
+
+    return newList.some((newItem, index) => {
+      const oldItem = prevListRef.current[index];
+      if (!oldItem) return true;
+
+      return (
+        newItem.id !== oldItem.id ||
+        newItem.status.value !== oldItem.status.value ||
+        newItem.name !== oldItem.name ||
+        newItem.remark !== oldItem.remark ||
+        JSON.stringify(newItem.usedCpu) !== JSON.stringify(oldItem.usedCpu) ||
+        JSON.stringify(newItem.usedMemory) !== JSON.stringify(oldItem.usedMemory)
+      );
+    });
+  }, []);
+
+  const refreshList = useCallback(() => {
+    const dataToCheck = useDevboxStore.getState().devboxList;
+    if (hasDataChanged(dataToCheck)) {
+      prevListRef.current = dataToCheck;
+      setList([...dataToCheck]);
+    }
+    return null;
+  }, [hasDataChanged]);
 
   const getViewportDevboxes = (minCount = 3) => {
+    const devboxList = useDevboxStore.getState().devboxList;
     const doms = document.querySelectorAll('.devboxListItem');
     const viewportDomIds = Array.from(doms)
       .filter(isElementInViewport)
@@ -42,47 +70,24 @@ export const useDevboxList = () => {
       : devboxList.filter((devbox) => viewportDomIds.includes(devbox.id));
   };
 
-  useQuery(
-    ['intervalLoadPods', devboxList.length],
-    () => {
-      const viewportDevboxList = getViewportDevboxes();
-      return viewportDevboxList
-        .filter((devbox) => devbox.status.value !== 'Stopped')
-        .map((devbox) => intervalLoadPods(devbox.name, false));
-    },
-    {
-      refetchOnMount: true,
-      refetchInterval: 3000,
-      enabled: !isLoading,
-      onSettled() {
-        refreshList();
-      }
-    }
-  );
-
-  useQuery(
-    ['refresh'],
-    () => {
-      refreshList();
-      return null;
-    },
-    {
-      refetchInterval: 3000
-    }
-  );
-
   const { refetch: refetchAvgMonitorData } = useQuery(
-    ['loadAvgMonitorData', devboxList.length],
-    () => {
+    ['loadAvgMonitorData'],
+    async () => {
       const viewportDevboxList = getViewportDevboxes();
-      return viewportDevboxList
-        .filter((devbox) => devbox.status.value === 'Running')
-        .map((devbox) => loadAvgMonitorData(devbox.name));
+      const runningDevboxes = viewportDevboxList.filter(
+        (devbox) => devbox.status.value === 'Running'
+      );
+      await Promise.all(runningDevboxes.map((devbox) => loadAvgMonitorData(devbox.name)));
+      return runningDevboxes.length;
     },
     {
       refetchOnMount: true,
-      refetchInterval: 2 * 60 * 1000,
-      enabled: !isLoading,
+      refetchInterval: () => {
+        const devboxList = useDevboxStore.getState().devboxList;
+        const hasRunningDevbox = devboxList.some((devbox) => devbox.status.value === 'Running');
+        return hasRunningDevbox ? 2 * 60 * 1000 : false;
+      },
+      enabled: !isLoading && !isImporting,
       onSettled() {
         refreshList();
       }
@@ -94,25 +99,27 @@ export const useDevboxList = () => {
     router.prefetch('/devbox/create');
   }, [router]);
 
+  const refetchListCallback = useCallback(() => {
+    refetchDevboxList();
+
+    // retry 3 times to fetch monitor data,because refetchDevboxList and then refetchAvgMonitorData immediately will cause monitor data be covered (devboxList refetch 3s once).
+    // And monitor 2min to refetch normally,but there we retry 3 times once.
+    const retryFetch = async (retryCount = 3, delay = 10 * 1000) => {
+      console.log('retry');
+      await refetchAvgMonitorData();
+
+      if (retryCount > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        await retryFetch(retryCount - 1, delay);
+      }
+    };
+
+    retryFetch();
+  }, [refetchDevboxList, refetchAvgMonitorData]);
+
   return {
-    list: list.current,
+    list,
     isLoading,
-    refetchList: () => {
-      refetchDevboxList();
-
-      // retry 3 times to fetch monitor data,because refetchDevboxList and then refetchAvgMonitorData immediately will cause monitor data be covered (devboxList refetch 3s once).
-      // And monitor 2min to refetch normally,but there we retry 3 times once.
-      const retryFetch = async (retryCount = 3, delay = 10 * 1000) => {
-        console.log('retry');
-        await refetchAvgMonitorData();
-
-        if (retryCount > 0) {
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          await retryFetch(retryCount - 1, delay);
-        }
-      };
-
-      retryFetch();
-    }
+    refetchList: refetchListCallback
   };
 };

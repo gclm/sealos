@@ -1,13 +1,17 @@
 import { createDB } from '@/api/db';
+import ErrorModal from '@/components/ErrorModal';
 import Tip from '@/components/Tip';
 import { DBTypeEnum } from '@/constants/db';
 import { BackupItemType, DBDetailType } from '@/types/db';
+import { ResponseCode } from '@/types/response';
 import { getErrText } from '@/utils/tools';
 import { InfoOutlineIcon } from '@chakra-ui/icons';
 import {
   Box,
   Button,
   Flex,
+  FormControl,
+  FormErrorMessage,
   Input,
   Modal,
   ModalBody,
@@ -41,10 +45,28 @@ const RestoreModal = ({
   const { t } = useTranslation();
   const { message: toast } = useMessage();
   const [forceUpdate, setForceUpdate] = useState(false);
+  const [errorModalState, setErrorModalState] = useState<{
+    isOpen: boolean;
+    errorCode?: number;
+    errorMessage?: string;
+  }>({ isOpen: false });
 
-  const { register, handleSubmit, getValues, setValue } = useForm({
+  // Limit name length.
+  const generateDefaultDatabaseName = () => {
+    const baseName = `${db.dbName}-${nanoid()}`;
+    return baseName.length > 50 ? baseName.substring(0, 50) : baseName;
+  };
+
+  const {
+    register,
+    handleSubmit,
+    getValues,
+    setValue,
+    formState: { errors }
+  } = useForm({
+    mode: 'onBlur',
     defaultValues: {
-      databaseName: `${db.dbName}-${nanoid()}`,
+      databaseName: generateDefaultDatabaseName(),
       replicas: 1
     }
   });
@@ -71,13 +93,33 @@ const RestoreModal = ({
       });
       onClose();
     },
-    onError(err) {
-      toast({
-        status: 'error',
-        title: t(getErrText(err, 'The restore task has been created failed !')),
-        duration: 6000,
-        isClosable: true
-      });
+    onError(err: any) {
+      if (err?.code === ResponseCode.BALANCE_NOT_ENOUGH) {
+        setErrorModalState({
+          isOpen: true,
+          errorCode: ResponseCode.BALANCE_NOT_ENOUGH,
+          errorMessage: t('user_balance_not_enough')
+        });
+      } else if (err?.code === ResponseCode.FORBIDDEN_CREATE_APP) {
+        setErrorModalState({
+          isOpen: true,
+          errorCode: ResponseCode.FORBIDDEN_CREATE_APP,
+          errorMessage: t('forbidden_create_app')
+        });
+      } else if (err?.code === ResponseCode.APP_ALREADY_EXISTS) {
+        setErrorModalState({
+          isOpen: true,
+          errorCode: ResponseCode.APP_ALREADY_EXISTS,
+          errorMessage: t('app_already_exists')
+        });
+      } else {
+        toast({
+          status: 'error',
+          title: err?.message || getErrText(err, 'The restore task has been created failed !'),
+          duration: 6000,
+          isClosable: true
+        });
+      }
     }
   });
 
@@ -97,13 +139,24 @@ const RestoreModal = ({
                 borderRadius={'md'}
               />
               <Box>
-                <Flex mt={8} alignItems={'center'}>
-                  <Box flex={'0 0 120px'}>{t('database_name')}</Box>
-                  <Input
-                    {...register('databaseName', {
-                      required: t('database_name_cannot_empty')
-                    })}
-                  />
+                <Flex mt={8} alignItems={'flex-start'}>
+                  <Box flex={'0 0 120px'} pt={2}>
+                    {t('database_name')}
+                  </Box>
+                  <FormControl isInvalid={Boolean(errors.databaseName)} flex={1}>
+                    <Input
+                      {...register('databaseName', {
+                        required: t('database_name_cannot_empty'),
+                        maxLength: {
+                          value: 50,
+                          message: t('database_name_max_length', { length: 50 })
+                        }
+                      })}
+                    />
+                    <FormErrorMessage mt={1}>
+                      {errors.databaseName && String(errors.databaseName.message)}
+                    </FormErrorMessage>
+                  </FormControl>
                 </Flex>
               </Box>
               <Box>
@@ -145,8 +198,9 @@ const RestoreModal = ({
                 <Button
                   isLoading={isLoading}
                   variant={'solid'}
-                  // @ts-ignore
-                  onClick={() => handleSubmit(onclickRestore)()}
+                  onClick={handleSubmit((data) =>
+                    onclickRestore({ databaseName: data.databaseName, replicas: data.replicas })
+                  )}
                 >
                   {t('Start')}
                 </Button>
@@ -155,6 +209,14 @@ const RestoreModal = ({
           </ModalBody>
         </ModalContent>
       </Modal>
+      {errorModalState.isOpen && (
+        <ErrorModal
+          title={t('operation_failed')}
+          content={errorModalState.errorMessage || ''}
+          onClose={() => setErrorModalState({ isOpen: false })}
+          errorCode={errorModalState.errorCode}
+        />
+      )}
     </>
   );
 };

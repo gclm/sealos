@@ -3,7 +3,6 @@ import useProtocol from '@/components/signin/auth/useProtocol';
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { useTranslation } from 'next-i18next';
-
 import { GoogleIcon, GithubIcon } from '../icons';
 import { useConfigStore } from '@/stores/config';
 import useSessionStore from '@/stores/session';
@@ -14,12 +13,20 @@ import { gtmLoginStart } from '@/utils/gtm';
 import UsernamePasswordSignin from './UsernamePasswordSignin';
 import { EmailSigninForm } from './EmailSigninForm';
 import { PhoneSigninForm } from './PhoneSigninForm';
+import { EmailCheckForm } from './EmailCheckForm';
+import { PhoneCheckForm } from './PhoneCheckForm';
 
-export default function SigninComponent() {
+interface SigninComponentProps {
+  isModal?: boolean;
+}
+
+type LoginStep = 'select' | 'email-verify' | 'phone-verify';
+
+export default function SigninComponent({ isModal = false }: SigninComponentProps) {
   const { t, i18n } = useTranslation();
   const conf = useConfigStore();
   const router = useRouter();
-  const needPhone = conf.authConfig?.idp.sms?.enabled && conf.authConfig.idp.sms.ali.enabled;
+  const needPhone = conf.authConfig?.idp.sms?.enabled;
   const needEmail = conf.authConfig?.idp.email.enabled;
   const passwordSigninEnabled = conf.authConfig?.idp.password?.enabled;
   const authConfig = conf.authConfig;
@@ -27,6 +34,8 @@ export default function SigninComponent() {
 
   // State to control password login mode
   const [isPasswordMode, setIsPasswordMode] = useState(false);
+  // State to control login step in modal mode
+  const [loginStep, setLoginStep] = useState<LoginStep>('select');
 
   let protocol_data: Parameters<typeof useProtocol>[0];
   if (['zh', 'zh-Hans'].includes(i18n.language))
@@ -139,6 +148,25 @@ export default function SigninComponent() {
           }
           break;
         }
+        case 'OAUTH2': {
+          const oauth2Conf = authConfig.idp.oauth2;
+          if (!oauth2Conf) {
+            throw new Error('OAuth2 configuration not found');
+          }
+          if (oauth2Conf.proxyAddress) {
+            await oauthProxyLogin({
+              state,
+              provider,
+              proxyAddress: oauth2Conf.proxyAddress,
+              id: oauth2Conf.clientID
+            });
+          } else {
+            await oauthLogin({
+              url: `${oauth2Conf.authURL}?client_id=${oauth2Conf.clientID}&redirect_uri=${oauth2Conf.callbackURL}&response_type=code&state=${state}`
+            });
+          }
+          break;
+        }
       }
     } catch (error) {
       // console.error(`${provider} login error:`, error);
@@ -159,21 +187,55 @@ export default function SigninComponent() {
     return <UsernamePasswordSignin onBack={() => setIsPasswordMode(false)} />;
   }
 
+  const ContentWrapper = isModal ? Box : Flex;
+  const wrapperProps = isModal
+    ? { p: 6 }
+    : { minH: '100vh', align: 'center', justify: 'center', bg, direction: 'column' as const };
+
+  // If in modal mode and in verification step, render the verification form
+  if (isModal && loginStep === 'email-verify') {
+    return (
+      <ContentWrapper {...wrapperProps}>
+        <EmailCheckForm isModal onBack={() => setLoginStep('select')} />
+      </ContentWrapper>
+    );
+  }
+
+  if (isModal && loginStep === 'phone-verify') {
+    return <PhoneCheckForm isModal onBack={() => setLoginStep('select')} />;
+  }
+
   return (
-    <Flex minH="100vh" align="center" justify="center" bg={bg} direction={'column'}>
-      <Stack mx="auto" maxW="lg" px={4} gap={'16px'} width="360px" minW={'352px'}>
+    <ContentWrapper {...wrapperProps}>
+      <Stack
+        mx="auto"
+        maxW="lg"
+        px={isModal ? 0 : 4}
+        gap={'16px'}
+        width={isModal ? '328px' : '360px'}
+        minW={'328px'}
+      >
         <Text fontSize={'24px'} fontWeight={600} mb={'16px'} mx="auto">
-          {t('v2:workspace_welcome')}
+          {(
+            conf.layoutConfig?.authTitle satisfies Record<string, string> | undefined as
+              | Record<string, string>
+              | undefined
+          )?.[i18n.language] ?? t('v2:workspace_welcome_default')}
         </Text>
 
         {conf.layoutConfig?.version === 'cn' ? (
           needPhone && (
             <>
-              <PhoneSigninForm />
+              <PhoneSigninForm
+                isModal={isModal}
+                onVerifyStep={() => setLoginStep('phone-verify')}
+              />
             </>
           )
         ) : conf.layoutConfig?.version === 'en' ? (
-          needEmail && <EmailSigninForm />
+          needEmail && (
+            <EmailSigninForm isModal={isModal} onVerifyStep={() => setLoginStep('email-verify')} />
+          )
         ) : (
           <></>
         )}
@@ -249,6 +311,22 @@ export default function SigninComponent() {
               Google
             </Button>
           )}
+          {authConfig?.idp?.oauth2?.enabled && (
+            <Button
+              borderRadius={'8px'}
+              variant="outline"
+              onClick={() => handleSocialLogin('OAUTH2' as OauthProvider)}
+              w={'100%'}
+              display="flex"
+              flexDirection="row"
+              justifyContent="center"
+              alignItems="center"
+              padding="12px 16px"
+              height="40px"
+            >
+              {authConfig.idp.oauth2.displayName || 'SSO'}
+            </Button>
+          )}
         </Stack>
 
         <Box
@@ -295,6 +373,6 @@ export default function SigninComponent() {
           </>
         )}
       </Stack>
-    </Flex>
+    </ContentWrapper>
   );
 }

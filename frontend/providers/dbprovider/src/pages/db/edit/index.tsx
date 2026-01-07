@@ -6,13 +6,24 @@ import { useLoading } from '@/hooks/useLoading';
 import { useDBStore } from '@/store/db';
 import { useGlobalStore } from '@/store/global';
 import { DBVersionMap } from '@/store/static';
-import { useUserStore } from '@/store/user';
 import type { YamlItemType } from '@/types';
 import type { DBEditType } from '@/types/db';
 import { adaptDBForm } from '@/utils/adapt';
 import { serviceSideProps } from '@/utils/i18n';
 import { json2Account, json2CreateCluster, limitRangeYaml } from '@/utils/json2Yaml';
-import { Box, Flex, useDisclosure } from '@chakra-ui/react';
+import {
+  Box,
+  Flex,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalCloseButton,
+  ModalBody,
+  ModalFooter,
+  Button
+} from '@chakra-ui/react';
 import { useMessage } from '@sealos/ui';
 import { track } from '@sealos/gtm';
 import { useQuery } from '@tanstack/react-query';
@@ -32,9 +43,9 @@ import { getDBSecret } from '@/api/db';
 import type { BackupItemType } from '@/types/db';
 import { getBackups, deleteBackup } from '@/api/backup';
 import StopBackupModal from '../detail/components/StopBackupModal';
-import { resourcePropertyMap } from '@/constants/resource';
+import { resourcePropertyMap, useUserQuota, useQuotaGuarded } from '@sealos/shared';
 import { distributeResources } from '@/utils/database';
-import { InsufficientQuotaDialog } from '@/components/InsufficientQuotaDialog';
+import MyIcon from '@/components/Icon';
 const ErrorModal = dynamic(() => import('@/components/ErrorModal'));
 
 const defaultEdit = {
@@ -45,7 +56,6 @@ const defaultEdit = {
 const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yaml' }) => {
   const { t } = useTranslation();
   const router = useRouter();
-  const { checkExceededQuotas, session } = useUserStore();
   const [yamlList, setYamlList] = useState<YamlItemType[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [errorCode, setErrorCode] = useState<ResponseCode>();
@@ -64,7 +74,7 @@ const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yam
   } = useDisclosure();
   const [pendingFormData, setPendingFormData] = useState<DBEditType | null>(null);
 
-  const [isInsufficientQuotaDialogOpen, setIsInsufficientQuotaDialogOpen] = useState(false);
+  const [isRestartConfirmOpen, setIsRestartConfirmOpen] = useState(false);
 
   const { title, applyBtnText, applyMessage, applySuccess, applyError } = editModeMap(!!dbName);
   const { openConfirm, ConfirmChild } = useConfirm({
@@ -96,7 +106,46 @@ const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yam
     setForceUpdate(!forceUpdate);
   });
 
-  const exceededQuotas = useMemo(() => {
+  // handle database error
+  const handleDatabaseError = useCallback(
+    (error: any) => {
+      if (error?.code === ResponseCode.BALANCE_NOT_ENOUGH) {
+        setErrorMessage(t('user_balance_not_enough'));
+        setErrorCode(ResponseCode.BALANCE_NOT_ENOUGH);
+
+        track('paywall_triggered', {
+          module: 'database',
+          type: 'insufficient_balance'
+        });
+      } else if (error?.code === ResponseCode.FORBIDDEN_CREATE_APP) {
+        setErrorMessage(t('forbidden_create_app'));
+        setErrorCode(ResponseCode.FORBIDDEN_CREATE_APP);
+
+        track('error_occurred', {
+          module: 'database',
+          error_code: 'FORBIDDEN_CREATE_APP'
+        });
+      } else if (error?.code === ResponseCode.APP_ALREADY_EXISTS) {
+        setErrorMessage(t('app_already_exists'));
+        setErrorCode(ResponseCode.APP_ALREADY_EXISTS);
+
+        track('error_occurred', {
+          module: 'database',
+          error_code: 'APP_ALREADY_EXISTS'
+        });
+      } else {
+        setErrorMessage(JSON.stringify(error));
+
+        track('error_occurred', {
+          module: 'database',
+          error_code: 'UNKNOWN_ERROR'
+        });
+      }
+    },
+    [t]
+  );
+
+  const resourceRequirements = useMemo(() => {
     const oldReplicas = formHook.formState.defaultValues?.replicas ?? 0;
     const newReplicas = realTimeForm.current.replicas;
 
@@ -168,18 +217,25 @@ const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yam
       )
     };
 
-    return checkExceededQuotas({
+    return {
       cpu: isEdit ? newResources.cpu - oldResources.cpu : newResources.cpu,
       memory: isEdit ? newResources.memory - oldResources.memory : newResources.memory,
       storage: isEdit ? newResources.storage - oldResources.storage : newResources.storage,
-      ...(session?.subscription?.type === 'PAYG' ? {} : { traffic: 1 })
-    });
-  }, [checkExceededQuotas, formHook.formState, isEdit, session]);
+      traffic: true
+    };
+  }, [formHook.formState, isEdit]);
+
+  const quotaResult = useUserQuota({
+    requirements: resourceRequirements
+  });
+  const exceededQuotas = quotaResult.exceededQuotas || [];
 
   useEffect(() => {
     if (!dbName) {
       const hour = Math.floor(Math.random() * 10) + 14;
       formHook.setValue('autoBackup.hour', hour.toString().padStart(2, '0'));
+      const minute = Math.floor(Math.random() * 60);
+      formHook.setValue('autoBackup.minute', minute.toString().padStart(2, '0'));
     }
   }, []);
 
@@ -264,9 +320,14 @@ const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yam
       formData.dbType === 'mongodb' && formData.replicas !== oldDBEditData.current?.replicas;
     setIsLoading(true);
     try {
-      !isEdit && (await applyYamlList([limitRangeYaml], 'create'));
+      // !isEdit && (await applyYamlList([limitRangeYaml], 'create')); // no need to apply limit range yaml
       needMongoAdapter && (await adapterMongoHaConfig({ name: formData.dbName }));
-    } catch (err) {}
+    } catch (error: any) {
+      handleDatabaseError(error);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       await createDB({ dbForm: formData, isEdit });
 
@@ -295,38 +356,7 @@ const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yam
       });
       router.replace(`/db/detail?name=${formData.dbName}&dbType=${formData.dbType}`);
     } catch (error: any) {
-      if (error?.code === ResponseCode.BALANCE_NOT_ENOUGH) {
-        setErrorMessage(t('user_balance_not_enough'));
-        setErrorCode(ResponseCode.BALANCE_NOT_ENOUGH);
-
-        track('paywall_triggered', {
-          module: 'database',
-          type: 'insufficient_balance'
-        });
-      } else if (error?.code === ResponseCode.FORBIDDEN_CREATE_APP) {
-        setErrorMessage(t('forbidden_create_app'));
-        setErrorCode(ResponseCode.FORBIDDEN_CREATE_APP);
-
-        track('error_occurred', {
-          module: 'database',
-          error_code: 'FORBIDDEN_CREATE_APP'
-        });
-      } else if (error?.code === ResponseCode.APP_ALREADY_EXISTS) {
-        setErrorMessage(t('app_already_exists'));
-        setErrorCode(ResponseCode.APP_ALREADY_EXISTS);
-
-        track('error_occurred', {
-          module: 'database',
-          error_code: 'APP_ALREADY_EXISTS'
-        });
-      } else {
-        setErrorMessage(JSON.stringify(error));
-
-        track('error_occurred', {
-          module: 'database',
-          error_code: 'UNKNOWN_ERROR'
-        });
-      }
+      handleDatabaseError(error);
     }
     setIsLoading(false);
   };
@@ -413,23 +443,38 @@ const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yam
     }
   );
 
-  const confirmSubmit = () => {
-    setIsInsufficientQuotaDialogOpen(false);
-
+  const handleConfirm = useCallback(() => {
     formHook.handleSubmit(
       (data) => handleBackupCheck(data),
       (err) => submitError(err)
     )();
-  };
+  }, [formHook, handleBackupCheck, submitError]);
 
-  const handleSubmit = () => {
-    if (exceededQuotas.length <= 0) {
-      confirmSubmit();
+  const confirmOrSubmit = useCallback(() => {
+    // Show confirmation modal when editing.
+    if (isEdit) {
+      setIsRestartConfirmOpen(true);
       return;
     }
 
-    setIsInsufficientQuotaDialogOpen(true);
-  };
+    // Or submit directly (on creation).
+    handleConfirm();
+  }, [isEdit, handleConfirm]);
+
+  const handleSubmit = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: resourceRequirements.cpu,
+        memory: resourceRequirements.memory,
+        storage: resourceRequirements.storage,
+        traffic: resourceRequirements.traffic
+      },
+      immediate: false,
+      allowContinue: false
+    },
+    confirmOrSubmit
+  );
+
   return (
     <>
       <Flex
@@ -511,13 +556,34 @@ const EditApp = ({ dbName, tabType }: { dbName?: string; tabType?: 'form' | 'yam
         dbName={pendingFormData?.dbName || ''}
       />
 
-      <InsufficientQuotaDialog
-        items={exceededQuotas}
-        onOpenChange={setIsInsufficientQuotaDialogOpen}
-        open={isInsufficientQuotaDialogOpen}
-        onConfirm={() => {}}
-        showControls={false}
-      />
+      <Modal isOpen={isRestartConfirmOpen} onClose={() => setIsRestartConfirmOpen(false)}>
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader display={'flex'} alignItems={'center'} bg={'#fff'} borderBottom={'none'}>
+            <MyIcon color={'#CA8A04'} widths={'16px'} height={'16px'} name="warning"></MyIcon>
+            <Box ml={3} fontSize={'xl'}>
+              {t('prompt')}
+            </Box>
+          </ModalHeader>
+          <ModalCloseButton fontSize={'16px'} />
+          <ModalBody maxH={'50vh'} overflow={'auto'} whiteSpace={'pre-wrap'}>
+            {t('confirm_config_change_restart')}
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              onClick={() => {
+                setIsRestartConfirmOpen(false);
+              }}
+              variant={'outline'}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button ml={'12px'} onClick={handleConfirm}>
+              {t('confirm')}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </>
   );
 };

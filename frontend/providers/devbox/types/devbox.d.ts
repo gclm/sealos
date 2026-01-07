@@ -74,6 +74,7 @@ export interface DevboxEditTypeV2 {
   memory: number;
   gpu?: GpuType;
   networks: PortInfos;
+  networkType?: 'NodePort' | 'Tailnet' | 'SSHGate';
   env?: DevboxEnvType[];
 }
 
@@ -107,8 +108,8 @@ export interface DevboxDetailType extends DevboxEditType {
   createTime: string;
   isPause?: boolean;
   status: DevboxStatusMapType;
-  usedCpu: MonitorDataResult;
-  usedMemory: MonitorDataResult;
+  usedCpu?: MonitorDataResult;
+  usedMemory?: MonitorDataResult;
   sshConfig?: {
     sshUser: string;
     sshDomain: string;
@@ -117,9 +118,8 @@ export interface DevboxDetailType extends DevboxEditType {
     token: string;
   };
   sshPort?: number;
-  lastTerminatedReason?: string;
 }
-export interface DevboxDetailTypeV2 extends json2DevboxV2Data {
+export interface DevboxDetailTypeV2 extends json2DevboxData {
   id: string;
   upTime?: string;
   createTime: string;
@@ -129,8 +129,9 @@ export interface DevboxDetailTypeV2 extends json2DevboxV2Data {
   templateRepositoryName: string;
   templateRepositoryDescription: string | null;
   status: DevboxStatusMapType;
-  usedCpu: MonitorDataResult;
-  usedMemory: MonitorDataResult;
+  state: DevboxStatusEnum;
+  usedCpu?: MonitorDataResult;
+  usedMemory?: MonitorDataResult;
   sshConfig?: {
     sshUser: string;
     sshDomain: string;
@@ -139,7 +140,6 @@ export interface DevboxDetailTypeV2 extends json2DevboxV2Data {
     token: string;
   };
   sshPort?: number;
-  lastTerminatedReason?: string;
 }
 export interface NetworkType {
   networkName: string;
@@ -151,26 +151,10 @@ export interface NetworkType {
   customDomain: string; // custom domain
 }
 
-export interface DevboxListItemType {
-  id: string;
-  name: string;
-  remark?: string;
-  runtimeType: string;
-  runtimeVersion: string;
-  status: DevboxStatusMapType;
-  createTime: string;
-  cpu: number;
-  memory: number;
-  usedCpu: MonitorDataResult;
-  usedMemory: MonitorDataResult;
-  sshPort: number;
-  lastTerminatedReason?: string;
-}
 export interface DevboxListItemTypeV2 {
   id: string;
   name: string;
   remark?: string;
-  // templateRepository: object
   template: {
     templateRepository: {
       iconId: string | null;
@@ -179,13 +163,15 @@ export interface DevboxListItemTypeV2 {
     name: string;
   };
   status: DevboxStatusMapType;
+  state: DevboxStatusEnum;
   createTime: string;
   cpu: number;
   memory: number;
-  usedCpu: MonitorDataResult;
-  usedMemory: MonitorDataResult;
+  gpu?: GpuType;
+  usedCpu?: MonitorDataResult;
+  usedMemory?: MonitorDataResult;
   sshPort: number;
-  lastTerminatedReason?: string;
+  networkType?: 'NodePort' | 'Tailnet' | 'SSHGate';
 }
 export interface DevboxVersionListItemType {
   id: string;
@@ -194,6 +180,7 @@ export interface DevboxVersionListItemType {
   tag: string;
   createTime: string;
   description: string;
+  startDevboxAfterRelease: boolean;
   status: DevboxReleaseStatusMapType;
 }
 
@@ -245,8 +232,8 @@ export interface PodDetailType extends V1Pod {
   ip: string;
   restarts: number;
   age: string;
-  usedCpu: MonitorDataResult;
-  usedMemory: MonitorDataResult;
+  usedCpu?: MonitorDataResult;
+  usedMemory?: MonitorDataResult;
   cpu: number;
   memory: number;
   podReason?: string;
@@ -254,7 +241,7 @@ export interface PodDetailType extends V1Pod {
   containerStatus: PodStatusMapType;
 }
 
-export interface json2DevboxV2Data extends DevboxEditTypeV2 {
+export interface json2DevboxData extends DevboxEditTypeV2 {
   templateConfig: string;
   image: string;
 }

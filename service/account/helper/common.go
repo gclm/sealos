@@ -35,6 +35,12 @@ const (
 	UserUsage                     = "/user-usage"
 	GetRechargeDiscount           = "/recharge-discount"
 	GetUserRealNameInfo           = "/real-name-info"
+
+	// UserAlertNotificationAccount routes
+	UserAlertNotificationAccountCreate = "/user-alert-notification-account/create"
+	UserAlertNotificationAccountList   = "/user-alert-notification-account/list"
+	UserAlertNotificationAccountDelete = "/user-alert-notification-account/delete"
+	UserAlertNotificationAccountToggle = "/user-alert-notification-account/toggle"
 )
 
 const (
@@ -90,6 +96,9 @@ const (
 	WorkspaceSubscriptionUpgradeAmount   = "/workspace-subscription/upgrade-amount"
 	WorkspaceSubscriptionPortalSession   = "/workspace-subscription/portal-session"
 	WorkspaceSubscriptionPlans           = "/workspace-subscription/plans"
+	WorkspaceSubscriptionCardManage      = "/workspace-subscription/card-manage"
+	WorkspaceSubscriptionCardInfo        = "/workspace-subscription/card-info"
+	WorkspaceSubscriptionInvoiceCancel   = "/workspace-subscription/invoice-cancel"
 )
 
 const PayNotificationPath = PaymentGroup + Notify

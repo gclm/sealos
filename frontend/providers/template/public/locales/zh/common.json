@@ -178,6 +178,9 @@
   "YAML File": "YAML 文件",
   "You haven't created any application yet.": "您还没有新建应用。",
   "add_credit": "充值",
+  "i_know": "我知道了",
+  "request_failed": "请求失败",
+  "operation_failed": "操作失败",
   "app": {
     "Resource Quota": "资源配额",
     "The applied CPU exceeds the quota": "申请的 CPU 超出配额限制，请联系管理员",
@@ -231,7 +234,7 @@
   "file value": "文件值",
   "filename": "文件名",
   "first_charge": "首充优惠",
-  "forbidden_create_app": "您在当前工作空间没有足够的权限来创建应用。请联系该工作空间的 owner (所有者) 为您授权。",
+  "forbidden_create_app": "您在当前工作空间没有足够的权限来创建应用。请联系该工作空间的 Owner (所有者) 为您授权。",
   "gift": "赠",
   "go_to_recharge": "去充值",
   "gpu": "GPU",
@@ -265,20 +268,5 @@
   "websocket": "WebSocket",
   "you_have_successfully_deployed_app": "您已成功部署一个应用！",
   "nodeport": "端口",
-  "traffic": "流量",
-  "insufficient_quota_dialog": {
-    "alert-title": "现在无法创建应用，需要的资源超出了您当前方案的配额。",
-    "cancel": "取消",
-    "confirm": "确认",
-    "please_upgrade_plan": {
-      "1": "请 ",
-      "2": "升级您的计划",
-      "3": "或删除使用上述资源的应用。"
-    },
-    "quota_available": "可用: ",
-    "quota_in_use": "使用中: ",
-    "quota_required": "需要: ",
-    "quota_total": "总计: ",
-    "title": "资源不足"
-  }
+  "traffic": "流量"
 }

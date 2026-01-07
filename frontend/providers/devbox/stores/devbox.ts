@@ -16,7 +16,6 @@ import type {
   DevboxListItemTypeV2,
   DevboxVersionListItemType
 } from '@/types/devbox';
-import dayjs from 'dayjs';
 
 type State = {
   devboxList: DevboxListItemTypeV2[];
@@ -58,13 +57,22 @@ type State = {
 
 export const useDevboxStore = create<State>()(
   devtools(
-    immer((set, get) => ({
+    immer((set) => ({
       devboxList: [],
       requestCache: new Map(),
       setDevboxList: async () => {
         const res = await getMyDevboxList();
         set((state) => {
-          state.devboxList = res;
+          const oldDevboxMap = new Map(state.devboxList.map((item) => [item.id, item]));
+
+          state.devboxList = res.map((newDevbox) => {
+            const oldDevbox = oldDevboxMap.get(newDevbox.id);
+            return {
+              ...newDevbox,
+              usedCpu: oldDevbox?.usedCpu,
+              usedMemory: oldDevbox?.usedMemory
+            };
+          });
         });
         return res;
       },
@@ -85,15 +93,16 @@ export const useDevboxStore = create<State>()(
           })
         ]);
         set((state) => {
-          state.devboxList = state.devboxList.map((item) => ({
-            ...item,
-            usedCpu:
-              item.name === devboxName && averageCpuData[0] ? averageCpuData[0] : item.usedCpu,
-            usedMemory:
-              item.name === devboxName && averageMemoryData[0]
-                ? averageMemoryData[0]
-                : item.usedMemory
-          }));
+          const targetIndex = state.devboxList.findIndex((item) => item.name === devboxName);
+          if (targetIndex !== -1) {
+            const item = state.devboxList[targetIndex];
+            if (averageCpuData[0]) {
+              item.usedCpu = averageCpuData[0];
+            }
+            if (averageMemoryData[0]) {
+              item.usedMemory = averageMemoryData[0];
+            }
+          }
         });
       },
       devboxVersionList: [],
@@ -165,22 +174,25 @@ export const useDevboxStore = create<State>()(
         if (!devboxName) return Promise.reject('devbox name is empty');
 
         const res = await getMyDevboxList();
-        const sshPort = res.find((item) => item.name === devboxName)?.sshPort;
-        const status = res.find((item) => item.name === devboxName)?.status;
+        const sshPort = res.find((item: DevboxListItemTypeV2) => item.name === devboxName)?.sshPort;
+        const status = res.find((item: DevboxListItemTypeV2) => item.name === devboxName)?.status;
 
         if (!status) return Promise.reject('devbox status is empty');
+
+        const isPause = status.value === 'Stopped' || status.value === 'Shutdown';
 
         set((state) => {
           if (state?.devboxDetail?.name === devboxName && updateDetail) {
             state.devboxDetail.status = status;
+            state.devboxDetail.isPause = isPause;
             if (state.devboxDetail.sshConfig && sshPort) {
               state.devboxDetail.sshConfig.sshPort = sshPort;
             }
           }
-          state.devboxList = state.devboxList.map((item) => ({
-            ...item,
-            status: item.name === devboxName ? status : item.status
-          }));
+          const targetIndex = state.devboxList.findIndex((item) => item.name === devboxName);
+          if (targetIndex !== -1) {
+            state.devboxList[targetIndex].status = status;
+          }
         });
         return 'success';
       },

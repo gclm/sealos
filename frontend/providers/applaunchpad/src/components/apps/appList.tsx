@@ -7,11 +7,10 @@ import PodLineChart from '@/components/PodLineChart';
 import { MyTable } from '@sealos/ui';
 import { useConfirm } from '@/hooks/useConfirm';
 import { useToast } from '@/hooks/useToast';
+import { useAppOperation } from '@/hooks/useAppOperation';
 import { useGlobalStore } from '@/store/global';
 import { useUserStore } from '@/store/user';
-import { InsufficientQuotaDialog } from '@/components/InsufficientQuotaDialog';
 import { AppListItemType } from '@/types/app';
-import { WorkspaceQuotaItem } from '@/types/workspace';
 import { getErrText } from '@/utils/tools';
 import {
   Box,
@@ -42,10 +41,12 @@ import UpdateModal from '@/components/app/detail/index/UpdateModal';
 import { useGuideStore } from '@/store/guide';
 import { applistDriverObj, startDriver } from '@/hooks/driver';
 import { useClientSideValue } from '@/hooks/useClientSideValue';
-import { PencilLine } from 'lucide-react';
+import { PencilLineIcon } from 'lucide-react';
 import { track } from '@sealos/gtm';
+import { useQuotaGuarded } from '@sealos/shared';
 
 const DelModal = dynamic(() => import('@/components/app/detail/index/DelModal'));
+const ErrorModal = dynamic(() => import('@/components/ErrorModal'));
 
 const AppList = ({
   apps = [],
@@ -56,25 +57,15 @@ const AppList = ({
 }) => {
   const { t } = useTranslation();
   const { setLoading } = useGlobalStore();
-  const { userSourcePrice, loadUserQuota, checkExceededQuotas, session } = useUserStore();
+  const { userSourcePrice } = useUserStore();
   const { toast } = useToast();
+  const { executeOperation, errorModalState, closeErrorModal } = useAppOperation();
   const theme = useTheme<ThemeType>();
   const router = useRouter();
   const [delAppName, setDelAppName] = useState('');
   const [updateAppName, setUpdateAppName] = useState('');
   const [remarkAppName, setRemarkAppName] = useState('');
   const [remarkValue, setRemarkValue] = useState('');
-  const [quotaLoaded, setQuotaLoaded] = useState(false);
-  const [exceededQuotas, setExceededQuotas] = useState<WorkspaceQuotaItem[]>([]);
-  const [exceededDialogOpen, setExceededDialogOpen] = useState(false);
-
-  // load user quota on component mount
-  useEffect(() => {
-    if (quotaLoaded) return;
-
-    loadUserQuota();
-    setQuotaLoaded(true);
-  }, [quotaLoaded, loadUserQuota]);
 
   const { openConfirm: onOpenPause, ConfirmChild: PauseChild } = useConfirm({
     content: 'pause_message'
@@ -133,92 +124,57 @@ const AppList = ({
     }
   }, [apps, remarkAppName, remarkValue, setLoading, toast, t, refetchApps, onCloseRemarkModal]);
 
-  const handleCreateApp = useCallback(() => {
-    // Check quota before creating app
-    const exceededQuotaItems = checkExceededQuotas({
-      cpu: 1,
-      memory: 1,
-      nodeport: 1,
-      storage: 1,
-      ...(session?.subscription?.type === 'PAYG' ? {} : { traffic: 1 })
-    });
-
-    if (exceededQuotaItems.length > 0) {
-      setExceededQuotas(exceededQuotaItems);
-      setExceededDialogOpen(true);
-      return;
-    } else {
-      setExceededQuotas([]);
+  const handleCreateApp = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: 1,
+        memory: 1,
+        nodeport: 1,
+        storage: 1,
+        traffic: true
+      },
+      immediate: false,
+      allowContinue: true
+    },
+    () => {
       track('deployment_start', {
         module: 'applaunchpad'
       });
       router.push('/app/edit');
     }
-  }, [checkExceededQuotas, router, session]);
+  );
 
   const handleRestartApp = useCallback(
     async (appName: string) => {
-      try {
-        setLoading(true);
-        await restartAppByName(appName);
-        toast({
-          title: `${t('Restart Success')}`,
-          status: 'success'
-        });
-      } catch (error: any) {
-        toast({
-          title: t(getErrText(error), 'Restart Failed'),
-          status: 'error'
-        });
-        console.error(error, '==');
-      }
-      setLoading(false);
+      await executeOperation(() => restartAppByName(appName), {
+        successMessage: t('Restart Success'),
+        errorMessage: t('Restart Failed'),
+        onSuccess: () => refetchApps()
+      });
     },
-    [setLoading, t, toast]
+    [executeOperation, refetchApps, t]
   );
 
   const handlePauseApp = useCallback(
     async (appName: string) => {
-      try {
-        setLoading(true);
-        await pauseAppByName(appName);
-        toast({
-          title: t('Application paused'),
-          status: 'success'
-        });
-      } catch (error: any) {
-        toast({
-          title: t(getErrText(error), 'Pause Failed'),
-          status: 'error'
-        });
-        console.error(error);
-      }
-      setLoading(false);
-      refetchApps();
+      await executeOperation(() => pauseAppByName(appName), {
+        successMessage: t('Application paused'),
+        errorMessage: t('Application failed'),
+        onSuccess: () => refetchApps()
+      });
     },
-    [refetchApps, setLoading, t, toast]
+    [executeOperation, refetchApps, t]
   );
 
   const handleStartApp = useCallback(
     async (appName: string) => {
-      try {
-        setLoading(true);
-        await startAppByName(appName);
-        toast({
-          title: t('Start Successful'),
-          status: 'success'
-        });
-      } catch (error: any) {
-        toast({
-          title: t(getErrText(error), 'Start Failed'),
-          status: 'error'
-        });
-        console.error(error);
-      }
-      setLoading(false);
-      refetchApps();
+      await executeOperation(() => startAppByName(appName), {
+        successMessage: t('Start Successful'),
+        errorMessage: t('Start Failed'),
+        onSuccess: () => refetchApps()
+      });
     },
-    [refetchApps, setLoading, t, toast]
+    [executeOperation, refetchApps, t]
   );
 
   const columns = useMemo<
@@ -234,17 +190,6 @@ const AppList = ({
         title: t('Name'),
         key: 'name',
         render: (item: AppListItemType) => {
-          const tooltipContent = (
-            <Box>
-              <Text>{item.name}</Text>
-              {item.remark && (
-                <Text fontSize="sm" mt={1}>
-                  {item.remark}
-                </Text>
-              )}
-            </Box>
-          );
-
           return (
             <Flex
               cursor={'pointer'}
@@ -289,7 +234,7 @@ const AppList = ({
                     ml={2}
                     onClick={() => handleOpenRemarkModal(item.name)}
                   >
-                    <PencilLine size={16} />
+                    <PencilLineIcon size={16} />
                     <Text fontSize={'14px'} fontWeight={'400'} whiteSpace="nowrap">
                       {t('set_remarks')}
                     </Text>
@@ -324,7 +269,7 @@ const AppList = ({
                     ml={2}
                     onClick={() => handleOpenRemarkModal(item.name)}
                   >
-                    <PencilLine size={16} />
+                    <PencilLineIcon size={16} />
                     <Text fontSize={'14px'} fontWeight={'400'} whiteSpace="nowrap">
                       {t('set_remarks')}
                     </Text>
@@ -575,7 +520,6 @@ const AppList = ({
         <Box fontSize={'xl'} color={'grayModern.900'} fontWeight={'bold'}>
           {t('Applications')}
         </Box>
-        {/* <LangSelect /> */}
         <Box ml={3} color={'grayModern.500'}>
           ( {apps.length} )
         </Box>
@@ -649,23 +593,14 @@ const AppList = ({
           </ModalFooter>
         </ModalContent>
       </Modal>
-
-      <InsufficientQuotaDialog
-        items={exceededQuotas}
-        open={exceededDialogOpen}
-        onOpenChange={(open) => {
-          // Refresh quota on open change
-          loadUserQuota();
-          setExceededDialogOpen(open);
-        }}
-        onConfirm={() => {
-          setExceededDialogOpen(false);
-          track('deployment_start', {
-            module: 'applaunchpad'
-          });
-          router.push('/app/edit');
-        }}
-      />
+      {errorModalState.visible && (
+        <ErrorModal
+          title={errorModalState.title}
+          content={errorModalState.content}
+          errorCode={errorModalState.errorCode}
+          onClose={closeErrorModal}
+        />
+      )}
     </Box>
   );
 };

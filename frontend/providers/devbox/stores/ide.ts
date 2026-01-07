@@ -4,6 +4,7 @@ import { immer } from 'zustand/middleware/immer';
 
 export type IDEType =
   | 'vscode'
+  | 'webide'
   | 'cursor'
   | 'vscodeInsiders'
   | 'windsurf'
@@ -15,7 +16,9 @@ export type IDEType =
   | 'trae'
   | 'traeCN'
   | 'gateway'
-  | 'toolbox';
+  | 'toolbox'
+  | 'zed'
+  | 'antigravity';
 
 type State = {
   devboxIDEList: { ide: IDEType; devboxName: string }[];
@@ -27,6 +30,7 @@ type State = {
 
 const validIDETypes: IDEType[] = [
   'vscode',
+  'webide',
   'cursor',
   'vscodeInsiders',
   'windsurf',
@@ -38,7 +42,9 @@ const validIDETypes: IDEType[] = [
   'trae',
   'traeCN',
   'gateway',
-  'toolbox'
+  'toolbox',
+  'zed',
+  'antigravity'
 ];
 
 const getValidIDE = (ide: string): IDEType => {

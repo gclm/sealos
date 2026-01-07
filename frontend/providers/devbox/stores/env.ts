@@ -12,13 +12,17 @@ export const defaultEnv: Env = {
   ingressSecret: 'wildcard-cert',
   registryAddr: 'hub.dev.sealos.plus',
   devboxAffinityEnable: 'true',
-  squashEnable: 'false',
   namespace: 'default',
   privacyUrlZH: 'https://sealos.run/docs/msa/privacy-policy',
   privacyUrlEN: 'https://sealos.io/docs/msa/privacy-policy',
   rootRuntimeNamespace: 'devbox-system',
   ingressDomain: 'sealosusw.site',
-  currencySymbol: 'shellCoin'
+  currencySymbol: 'shellCoin',
+  storageLimit: '10Gi',
+  enableImportFeature: 'false',
+  enableWebideFeature: 'false',
+  cpuSlideMarkList: '1,2,4,8,16',
+  memorySlideMarkList: '2,4,8,16,32'
 };
 
 type State = {

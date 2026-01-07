@@ -69,6 +69,10 @@ data:
           aiAssistantEnabled: false
           bannerEnabled: false
           subscriptionEnabled: false
+          guestModeEnabled: false
+          emailAlertEnabled: false
+          phoneAlertEnabled: false
+          announcementEnabled: false
       auth:
         proxyAddress: ""
         callbackURL: "https://{{ .cloudDomain }}{{ if .cloudPort }}:{{ .cloudPort }}{{ end }}/callback"
@@ -123,7 +127,6 @@ data:
           sms:
             enabled: false
             ali:
-              enabled: false
               endpoint: ""
               templateCode: ""
               signName: ""

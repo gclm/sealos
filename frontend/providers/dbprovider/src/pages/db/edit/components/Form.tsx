@@ -12,17 +12,16 @@ import {
   WeekSelectList
 } from '@/constants/db';
 import { CpuSlideMarkList, MemorySlideMarkList } from '@/constants/editApp';
-import { resourcePropertyMap } from '@/constants/resource';
+import { resourcePropertyMap } from '@sealos/shared';
 import useEnvStore from '@/store/env';
 import { DBVersionMap, INSTALL_ACCOUNT } from '@/store/static';
 import type { QueryType } from '@/types';
 import { AutoBackupType } from '@/types/backup';
 import type { DBEditType, DBType } from '@/types/db';
 import { I18nCommonKey } from '@/types/i18next';
-import { WorkspaceQuotaItem } from '@/types/workspace';
+import { type WorkspaceQuotaItem } from '@sealos/shared';
 import { distributeResources } from '@/utils/database';
 import { getAddonList } from '@/api/platform';
-import type { AddonItem } from '@/pages/api/getAddonList';
 import { useQuery } from '@tanstack/react-query';
 import { InfoOutlineIcon } from '@chakra-ui/icons';
 import {
@@ -219,6 +218,8 @@ const Form = ({
   const lowerCaseTableNames = watch('parameterConfig')?.lowerCaseTableNames;
   const maxConnections = watch('parameterConfig')?.maxConnections;
   const isMaxConnectionsCustomized = watch('parameterConfig')?.isMaxConnectionsCustomized;
+  const maxmemory = watch('parameterConfig')?.maxmemory;
+  const memory = watch('memory');
 
   const Label = ({
     children,
@@ -360,6 +361,26 @@ const Form = ({
     setValue('storage', Math.max(3, minStorage, allocatedStorage));
   }, [getValues, allocatedStorage, isEdit, minCPU, minMemory, setValue, minStorage]);
 
+  useEffect(() => {
+    const currentDbType = getValues('dbType');
+    const currentMemory = getValues('memory');
+
+    if (editingParam === 'maxmemory') {
+      return;
+    }
+
+    if (currentDbType === DBTypeEnum.redis && currentMemory) {
+      const calculatedMaxmemory = calculateMaxmemory(currentMemory);
+      const currentParameterConfig = getValues('parameterConfig') || {};
+
+      setValue('parameterConfig', {
+        ...currentParameterConfig,
+        maxmemory: calculatedMaxmemory
+      });
+    }
+    //eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memory, dbType, editingParam]);
+
   const backupSettingsRef = useRef<HTMLDivElement | null>(null);
   const parameterConfigRef = useRef<HTMLDivElement | null>(null);
 
@@ -442,6 +463,13 @@ const Form = ({
     return '';
   };
 
+  const calculateMaxmemory = (memoryMi: number): string => {
+    const memoryBytes = memoryMi * 1024 * 1024;
+    const percentage = memoryMi > 512 ? 0.7 : 0.5;
+    const maxmemoryBytes = Math.floor(memoryBytes * percentage);
+    return maxmemoryBytes.toString();
+  };
+
   const availableDBTypes = useMemo(() => {
     if (addonLoading) {
       return DBTypeList;
@@ -453,6 +481,11 @@ const Form = ({
     });
 
     const filtered = DBTypeList.filter((dbType) => {
+      // Exclude weaviate from create form
+      if (dbType.id === DBTypeEnum.weaviate) {
+        return false;
+      }
+
       const addonName = dbType.id;
       const addonStatus = addonStatusMap.get(addonName);
       const shouldInclude = addonStatus !== 'Disabled';
@@ -723,7 +756,8 @@ const Form = ({
                         resourcePropertyMap.cpu.scale
                     })}
                   </Box>
-                  <Box fontSize={'md'} color={'red.500'}>
+                  {/* [TODO] Let's wait for the Client SDK upgrade */}
+                  {/* <Box fontSize={'md'} color={'red.500'}>
                     {t('please_upgrade_plan.0')}
                     <Box
                       as="span"
@@ -736,7 +770,7 @@ const Form = ({
                       {t('please_upgrade_plan.1')}
                     </Box>
                     {t('please_upgrade_plan.2')}
-                  </Box>
+                  </Box> */}
                 </Box>
               )}
               <Flex mb={'50px'} pr={3} alignItems={'center'}>
@@ -769,7 +803,8 @@ const Form = ({
                         resourcePropertyMap.memory.scale
                     })}
                   </Box>
-                  <Box fontSize={'md'} color={'red.500'}>
+                  {/* [TODO] Let's wait for the Client SDK upgrade */}
+                  {/* <Box fontSize={'md'} color={'red.500'}>
                     {t('please_upgrade_plan.0')}
                     <Box
                       as="span"
@@ -782,7 +817,7 @@ const Form = ({
                       {t('please_upgrade_plan.1')}
                     </Box>
                     {t('please_upgrade_plan.2')}
-                  </Box>
+                  </Box> */}
                 </Box>
               )}
               <Flex mb={7} alignItems={'center'}>
@@ -950,7 +985,8 @@ const Form = ({
                         resourcePropertyMap.storage.scale
                     })}
                   </Box>
-                  <Box fontSize={'md'} color={'red.500'}>
+                  {/* [TODO] Let's wait for the Client SDK upgrade */}
+                  {/* <Box fontSize={'md'} color={'red.500'}>
                     {t('please_upgrade_plan.0')}
                     <Box
                       as="span"
@@ -963,7 +999,7 @@ const Form = ({
                       {t('please_upgrade_plan.1')}
                     </Box>
                     {t('please_upgrade_plan.2')}
-                  </Box>
+                  </Box> */}
                 </Box>
               )}
               <ResourcesDistributeTable
@@ -1118,6 +1154,24 @@ const Form = ({
                           </Td>
                         </Tr>
 
+                        {/* maxmemory parameter for Redis only */}
+                        {getValues('dbType') === DBTypeEnum.redis && (
+                          <Tr>
+                            <Td w="350px">
+                              <Text fontSize={'14px'} color={'grayModern.900'}>
+                                maxmemory
+                              </Text>
+                            </Td>
+                            <Td>
+                              <Flex alignItems={'center'} gap={'8px'}>
+                                <Text fontSize={'12px'} color={'grayModern.600'}>
+                                  {maxmemory || calculateMaxmemory(getValues('memory'))}
+                                </Text>
+                              </Flex>
+                            </Td>
+                          </Tr>
+                        )}
+
                         {/* Timezone parameter for MySQL and PostgreSQL */}
                         {(getValues('dbType') === DBTypeEnum.mysql ||
                           getValues('dbType') === DBTypeEnum.postgresql) && (
@@ -1185,8 +1239,8 @@ const Form = ({
                                     width={'140px'}
                                     value={lowerCaseTableNames}
                                     list={[
-                                      { value: '1', label: '1 (' + t('case_insensitive') + ')' },
-                                      { value: '0', label: '0 (' + t('case_sensitive') + ')' }
+                                      { value: '0', label: '0 (' + t('case_sensitive') + ')' },
+                                      { value: '1', label: '1 (' + t('case_insensitive') + ')' }
                                     ]}
                                     onchange={(val: string) => {
                                       setValue('parameterConfig', {
@@ -1198,11 +1252,11 @@ const Form = ({
                                   />
                                 ) : (
                                   <Text fontSize={'12px'} color={'grayModern.600'}>
-                                    {lowerCaseTableNames} (
                                     {lowerCaseTableNames === '0'
-                                      ? t('case_sensitive')
-                                      : t('case_insensitive')}
-                                    )
+                                      ? `0 (${t('case_sensitive')})`
+                                      : lowerCaseTableNames === '1'
+                                        ? `1 (${t('case_insensitive')})`
+                                        : t('param_unset')}
                                   </Text>
                                 )}
                                 <MyIcon
@@ -1333,7 +1387,7 @@ const Form = ({
                   <FormControl isInvalid={Boolean(errors?.autoBackup?.saveTime)} mt={7}>
                     <Flex alignItems={'center'}>
                       <Box flex={'0 0 110px'}>{t('SaveTime')}</Box>
-                      <MyTooltip label={'1~100' + t('Day')}>
+                      <MyTooltip label={'1~14' + t('Day')}>
                         <NumberInput
                           w={'120px'}
                           max={100}
@@ -1343,7 +1397,7 @@ const Form = ({
                           value={getValues('autoBackup.saveTime')}
                           onChange={(e) => {
                             e !== ''
-                              ? setValue('autoBackup.saveTime', Math.min(+e, 100))
+                              ? setValue('autoBackup.saveTime', Math.min(+e, 14))
                               : setValue('autoBackup.saveTime', 1);
                           }}
                         >
@@ -1355,13 +1409,13 @@ const Form = ({
                                 message: `${t('backup_saveTime_max')}1${t('Day')}`
                               },
                               max: {
-                                value: 100,
-                                message: `${t('backup_saveTime_min')}100${t('Day')} `
+                                value: 14,
+                                message: `${t('backup_saveTime_min')}14${t('Day')} `
                               },
                               valueAsNumber: true
                             })}
-                            min={0}
-                            max={100}
+                            min={1}
+                            max={14}
                             borderRadius={'md'}
                             borderColor={'#E8EBF0'}
                             bg={'#F7F8FA'}

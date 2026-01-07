@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { ArrowUpRight, Settings } from 'lucide-react';
 
 import { Button } from '@sealos/shadcn-ui/button';
-import { JetBrainsGuideData } from '@/components/IDEButton';
+import { SSHConnectionData } from '@/components/IDEButton';
 import SshConnectDrawer from '@/components/drawers/SshConnectDrawer';
 import { Stepper, Step, StepIndicator } from '@sealos/shadcn-ui/stepper';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@sealos/shadcn-ui/drawer';
@@ -11,10 +11,10 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@sealos/shadcn
 interface ToolboxModalProps {
   open: boolean;
   onClose: () => void;
-  jetbrainsGuideData: JetBrainsGuideData;
+  sshConnectionData: SSHConnectionData;
 }
 
-const ToolboxDrawer = ({ open, onClose, jetbrainsGuideData }: ToolboxModalProps) => {
+const ToolboxDrawer = ({ open, onClose, sshConnectionData }: ToolboxModalProps) => {
   const t = useTranslations();
 
   const [onConnecting, setOnConnecting] = useState(false);
@@ -23,10 +23,10 @@ const ToolboxDrawer = ({ open, onClose, jetbrainsGuideData }: ToolboxModalProps)
   const connectToolbox = useCallback(async () => {
     setOnConnecting(true);
 
-    window.open(`jetbrains://gateway/ssh/environment?h=${jetbrainsGuideData.configHost}`, '_blank');
+    window.open(`jetbrains://gateway/ssh/environment?h=${sshConnectionData.configHost}`, '_blank');
 
     setOnConnecting(false);
-  }, [jetbrainsGuideData]);
+  }, [sshConnectionData]);
 
   return (
     <Drawer open={open} onOpenChange={(open) => !open && onClose()} direction="right">
@@ -84,7 +84,7 @@ const ToolboxDrawer = ({ open, onClose, jetbrainsGuideData }: ToolboxModalProps)
               open={onOpenSSHConnectDrawer}
               onClose={() => setOnOpenSSHConnectDrawer(false)}
               onSuccess={() => {}}
-              jetbrainsGuideData={jetbrainsGuideData}
+              sshConnectionData={sshConnectionData}
             />
           )}
         </div>

@@ -2,11 +2,9 @@ import { applyYamlList } from '@/api/job';
 import { editModeMap } from '@/constants/editApp';
 import { DefaultJobEditValue } from '@/constants/job';
 import { useConfirm } from '@/hooks/useConfirm';
-import { useLoading } from '@/hooks/useLoading';
-import { useToast } from '@/hooks/useToast';
+import { useCronJobOperation } from '@/hooks/useCronJobOperation';
 import { useGlobalStore } from '@/store/global';
 import { useJobStore } from '@/store/job';
-import { useUserStore } from '@/store/user';
 import type { YamlItemType } from '@/types';
 import { CronJobEditType } from '@/types/job';
 import { serviceSideProps } from '@/utils/i18n';
@@ -21,10 +19,11 @@ import { useForm } from 'react-hook-form';
 import Form from './components/Form';
 import Header from './components/Header';
 import Yaml from './components/Yaml';
-import { InsufficientQuotaDialog } from '@/components/InsufficientQuotaDialog';
+import { useQuotaGuarded } from '@sealos/shared';
 import useEnvStore from '@/store/env';
+import { useToast } from '@/hooks/useToast';
 
-const ErrorModal = dynamic(() => import('./components/ErrorModal'));
+const ErrorModal = dynamic(() => import('@/components/ErrorModal'));
 
 const defaultEdit: CronJobEditType = {
   ...DefaultJobEditValue
@@ -41,16 +40,12 @@ const EditApp = ({ jobName, tabType }: { jobName?: string; tabType?: 'form' | 'y
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const [yamlList, setYamlList] = useState<YamlItemType[]>([]);
-  const [errorMessage, setErrorMessage] = useState('');
   const [forceUpdate, setForceUpdate] = useState(false);
   const { toast } = useToast();
-  const { Loading, setIsLoading } = useLoading();
+  const { executeOperation, loading, errorModalState, closeErrorModal } = useCronJobOperation();
   const { loadJobDetail } = useJobStore();
-  const { checkExceededQuotas, session, loadUserQuota, userQuota } = useUserStore();
   const { title, applyBtnText, applyMessage, applySuccess, applyError } = editModeMap(!!jobName);
   const isEdit = useMemo(() => !!jobName, [jobName]);
-  const [isInsufficientQuotaDialogOpen, setIsInsufficientQuotaDialogOpen] = useState(false);
-  const [exceededQuotas, setExceededQuotas] = useState<any[]>([]);
   const { SystemEnv } = useEnvStore();
 
   const { openConfirm, ConfirmChild } = useConfirm({
@@ -80,80 +75,27 @@ const EditApp = ({ jobName, tabType }: { jobName?: string; tabType?: 'form' | 'y
     setForceUpdate(!forceUpdate);
   });
 
-  // Load user quota on mount
-  useEffect(() => {
-    loadUserQuota();
-  }, [loadUserQuota]);
-
-  // Calculate exceeded quotas function
-  const calculateExceededQuotas = useCallback(() => {
-    const exceeded = checkExceededQuotas({
-      cpu: SystemEnv.podCpuRequest,
-      memory: SystemEnv.podMemoryRequest,
-      ...(session?.subscription?.type === 'PAYG' ? {} : { traffic: 1 })
-    });
-
-    return exceeded;
-  }, [checkExceededQuotas, SystemEnv, session]);
-
-  // Initialize exceeded quotas with default values
-  useEffect(() => {
-    if (userQuota.length > 0 && SystemEnv.podCpuRequest && SystemEnv.podMemoryRequest) {
-      const defaultExceededQuotas = calculateExceededQuotas();
-      setExceededQuotas(defaultExceededQuotas);
-    }
-  }, [userQuota, SystemEnv, calculateExceededQuotas]);
-
-  // Refresh user quota on dialog open
-  const handleInsufficientQuotaDialogOpenChange = useCallback(
-    async (open: boolean) => {
-      if (open) {
-        await loadUserQuota();
-      }
-
-      setIsInsufficientQuotaDialogOpen(open);
-    },
-    [setIsInsufficientQuotaDialogOpen, loadUserQuota]
-  );
-
   const submitSuccess = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const yamlList = formData2Yamls(realTimeForm.current);
-      setYamlList(yamlList);
-      const data = yamlList.map((item) => item.value);
-      await applyYamlList(data, isEdit ? 'replace' : 'create');
-      toast({
-        title: t(applySuccess),
-        status: 'success'
-      });
+    const yamlList = formData2Yamls(realTimeForm.current);
+    setYamlList(yamlList);
+    const data = yamlList.map((item) => item.value);
+
+    const result = await executeOperation(
+      () => applyYamlList(data, isEdit ? 'replace' : 'create'),
+      {
+        successMessage: t(applySuccess),
+        errorMessage: t(applyError),
+        showErrorModal: true
+      }
+    );
+    console.log(result, '12312');
+
+    if (result !== null) {
       router.push('/jobs');
-    } catch (error) {
-      setErrorMessage(JSON.stringify(error));
     }
-    setIsLoading(false);
-  }, [applySuccess, isEdit, setIsLoading, t, toast, yamlList]);
-
-  const confirmSubmit = () => {
-    setIsInsufficientQuotaDialogOpen(false);
-    formHook.handleSubmit(openConfirm(submitSuccess), submitError)();
-  };
-
-  const handleSubmit = () => {
-    // Calculate exceeded quotas based on current form data
-    const currentExceededQuotas = calculateExceededQuotas();
-    setExceededQuotas(currentExceededQuotas);
-
-    if (currentExceededQuotas.length <= 0) {
-      confirmSubmit();
-      return;
-    }
-
-    setIsInsufficientQuotaDialogOpen(true);
-  };
+  }, [executeOperation, t, applySuccess, applyError, isEdit, router]);
 
   const submitError = useCallback(() => {
-    // deep search message
     const deepSearch = (obj: any): string => {
       if (!obj || typeof obj !== 'object') return t('Submit Error');
       if (!!obj.message) {
@@ -170,6 +112,23 @@ const EditApp = ({ jobName, tabType }: { jobName?: string; tabType?: 'form' | 'y
     });
   }, [formHook.formState.errors, t, toast]);
 
+  const doSubmit = useCallback(() => {
+    formHook.handleSubmit(openConfirm(submitSuccess), submitError)();
+  }, [formHook, openConfirm, submitSuccess, submitError]);
+
+  const handleSubmit = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: SystemEnv.podCpuRequest,
+        memory: SystemEnv.podMemoryRequest,
+        traffic: true
+      },
+      immediate: false,
+      allowContinue: false
+    },
+    doSubmit
+  );
+
   useQuery(
     ['initJobDetail'],
     () => {
@@ -182,7 +141,6 @@ const EditApp = ({ jobName, tabType }: { jobName?: string; tabType?: 'form' | 'y
         ]);
         return null;
       }
-      setIsLoading(true);
       return loadJobDetail(jobName);
     },
     {
@@ -195,9 +153,6 @@ const EditApp = ({ jobName, tabType }: { jobName?: string; tabType?: 'form' | 'y
           title: String(err),
           status: 'error'
         });
-      },
-      onSettled() {
-        setIsLoading(false);
       }
     }
   );
@@ -236,18 +191,14 @@ const EditApp = ({ jobName, tabType }: { jobName?: string; tabType?: 'form' | 'y
         </Box>
       </Flex>
       <ConfirmChild />
-      <Loading />
-      {!!errorMessage && (
-        <ErrorModal title={applyError} content={errorMessage} onClose={() => setErrorMessage('')} />
+      {errorModalState.visible && (
+        <ErrorModal
+          title={errorModalState.title}
+          content={errorModalState.content}
+          errorCode={errorModalState.errorCode}
+          onClose={closeErrorModal}
+        />
       )}
-
-      <InsufficientQuotaDialog
-        items={exceededQuotas}
-        onOpenChange={handleInsufficientQuotaDialogOpenChange}
-        open={isInsufficientQuotaDialogOpen}
-        onConfirm={() => {}}
-        showControls={false}
-      />
     </>
   );
 };

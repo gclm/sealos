@@ -23,8 +23,9 @@ import { useIDEStore } from '@/stores/ide';
 import { usePriceStore } from '@/stores/price';
 import { useGuideStore } from '@/stores/guide';
 import { useDevboxStore } from '@/stores/devbox';
-import { useErrorMessage } from '@/hooks/useErrorMessage';
-import { useUserStore } from '@/stores/user';
+import { useQuotaGuarded } from '@sealos/shared';
+import { useDevboxOperation } from '@/hooks/useDevboxOperation';
+import ErrorModal from '@/components/ErrorModal';
 
 import Form from './components/Form';
 import Yaml from './components/Yaml';
@@ -33,20 +34,17 @@ import { Loading } from '@sealos/shadcn-ui/loading';
 import { track } from '@sealos/gtm';
 import { listTemplate } from '@/api/template';
 import { z } from 'zod';
-import type { WorkspaceQuotaItem } from '@/types/workspace';
-import { InsufficientQuotaDialog } from '@/components/dialogs/InsufficientQuotaDialog';
 
 const DevboxCreatePage = () => {
   const router = useRouter();
   const t = useTranslations();
   const searchParams = useSearchParams();
-  const { getErrorMessage } = useErrorMessage();
+  const { executeOperation, errorModalState, closeErrorModal } = useDevboxOperation();
 
   const { env } = useEnvStore();
   const { addDevboxIDE } = useIDEStore();
   const { setDevboxDetail, setStartedTemplate, startedTemplate } = useDevboxStore();
   const { sourcePrice, setSourcePrice } = usePriceStore();
-  const userStore = useUserStore();
 
   const crOldYamls = useRef<DevboxKindsType[]>([]);
   const formOldYamls = useRef<YamlItemType[]>([]);
@@ -54,9 +52,6 @@ const DevboxCreatePage = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [yamlList, setYamlList] = useState<YamlItemType[]>([]);
-  const [exceededQuotas, setExceededQuotas] = useState<WorkspaceQuotaItem[]>([]);
-  const [exceededDialogOpen, setExceededDialogOpen] = useState(false);
-  console.log('exceededQuotas', exceededQuotas, exceededDialogOpen);
 
   const tabType = searchParams.get('type') || 'form';
   const devboxName = searchParams.get('name') || '';
@@ -76,17 +71,11 @@ const DevboxCreatePage = () => {
     const scrollTo = searchParams.get('scrollTo');
     if (name) {
       setCaptureDevboxName(name);
-      router.replace(`/devbox/create?name=${captureDevboxName}`, undefined);
       if (from) {
         setCaptureFrom(from);
-        router.replace(`/devbox/create?name=${captureDevboxName}&from=${captureFrom}`, undefined);
-        if (scrollTo) {
-          setCaptureScrollTo(scrollTo);
-          router.replace(
-            `/devbox/create?name=${captureDevboxName}&scrollTo=${captureScrollTo}`,
-            undefined
-          );
-        }
+      }
+      if (scrollTo) {
+        setCaptureScrollTo(scrollTo);
       }
     } else if (from === 'template') {
       const savedFormData = localStorage.getItem('devbox_create_form_data');
@@ -100,7 +89,7 @@ const DevboxCreatePage = () => {
         }
       }
     }
-  }, [searchParams, router, captureDevboxName, captureScrollTo, captureFrom, formHook]);
+  }, [searchParams, formHook]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const isEdit = useMemo(() => !!devboxName, []);
@@ -144,9 +133,9 @@ const DevboxCreatePage = () => {
 
   const countGpuInventory = useCallback(
     (type?: string) => {
-      const inventory = sourcePrice?.gpu?.find((item) => item.type === type)?.inventory || 0;
+      const available = sourcePrice?.gpu?.find((item) => item.type === type)?.available || 0;
 
-      return inventory;
+      return available;
     },
     [sourcePrice?.gpu]
   );
@@ -180,7 +169,6 @@ const DevboxCreatePage = () => {
     },
     {
       onSuccess(res) {
-        console.log('res', res);
         if (!res) {
           return;
         }
@@ -203,87 +191,88 @@ const DevboxCreatePage = () => {
     if (!guideConfigDevbox) {
       return router.push('/devbox/detail/devbox-mock');
     }
-    setIsLoading(true);
-    try {
-      // gpu inventory check
-      if (formData.gpu?.type) {
-        const inventory = countGpuInventory(formData.gpu?.type);
-        if (formData.gpu?.amount > inventory) {
-          return toast.warning(
-            t('Gpu under inventory Tip', {
-              gputype: formData.gpu.type
-            })
-          );
-        }
-      }
 
-      // update
-      if (isEdit) {
-        const yamlList = generateYamlList(formData, env);
-        setYamlList(yamlList);
-        const parsedNewYamlList = yamlList.map((item) => item.value);
-        const parsedOldYamlList = formOldYamls.current.map((item) => item.value);
-        const areYamlListsEqual =
-          new Set(parsedNewYamlList).size === new Set(parsedOldYamlList).size &&
-          [...new Set(parsedNewYamlList)].every((item) => new Set(parsedOldYamlList).has(item));
-        if (areYamlListsEqual) {
-          setIsLoading(false);
-          return toast.info(t('No changes detected'));
-        }
-        if (!parsedNewYamlList) {
-          // prevent empty yamlList
-          return toast.warning(t('submit_form_error'));
-        }
-        const patch = patchYamlList({
-          parsedOldYamlList: parsedOldYamlList,
-          parsedNewYamlList: parsedNewYamlList,
-          originalYamlList: crOldYamls.current
-        });
-        await updateDevbox({
-          patch,
-          devboxName: formData.name
-        });
-        track({
-          event: 'deployment_update',
-          module: 'devbox',
-          context: 'app'
-        });
-      } else {
-        await createDevbox(formData);
-        track({
-          event: 'deployment_create',
-          module: 'devbox',
-          context: 'app',
-          config: {
-            template_name: startedTemplate?.name || '',
-            template_version: templateList.find((t) => t.uid === formData.templateUid)?.name || ''
-          },
-          resources: {
-            cpu_cores: formData.cpu,
-            ram_mb: formData.memory
-          }
-        });
-      }
-      addDevboxIDE('vscode', formData.name);
-
-      toast.success(t(applySuccess));
-
-      if (sourcePrice?.gpu) {
-        refetchPrice();
-      }
-      setStartedTemplate(undefined);
-      router.push(`/devbox/detail/${formData.name}`);
-    } catch (error: any) {
-      if (typeof error === 'string' && error.includes('402')) {
-        toast.warning(t(applyError), {
-          description: t('outstanding_tips')
-        });
-      } else {
-        const errorMsg = getErrorMessage(error, isEdit ? 'update_failed' : 'create_failed');
-        toast.warning(t(applyError), { description: errorMsg });
+    // gpu inventory check
+    if (formData.gpu?.type) {
+      const inventory = countGpuInventory(formData.gpu?.type);
+      if (formData.gpu?.amount > inventory) {
+        return toast.warning(
+          t('Gpu under inventory Tip', {
+            gputype: formData.gpu.type
+          })
+        );
       }
     }
-    setIsLoading(false);
+
+    // update
+    if (isEdit) {
+      const yamlList = generateYamlList(formData, env);
+      setYamlList(yamlList);
+      const parsedNewYamlList = yamlList.map((item) => item.value);
+      const parsedOldYamlList = formOldYamls.current.map((item) => item.value);
+      const areYamlListsEqual =
+        new Set(parsedNewYamlList).size === new Set(parsedOldYamlList).size &&
+        [...new Set(parsedNewYamlList)].every((item) => new Set(parsedOldYamlList).has(item));
+      if (areYamlListsEqual) {
+        return toast.info(t('No changes detected'));
+      }
+      if (!parsedNewYamlList) {
+        return toast.warning(t('submit_form_error'));
+      }
+      const patch = patchYamlList({
+        parsedOldYamlList: parsedOldYamlList,
+        parsedNewYamlList: parsedNewYamlList,
+        originalYamlList: crOldYamls.current
+      });
+      await executeOperation(
+        () =>
+          updateDevbox({
+            patch,
+            devboxName: formData.name
+          }),
+        {
+          onSuccess: () => {
+            track({
+              event: 'deployment_update',
+              module: 'devbox',
+              context: 'app'
+            });
+            addDevboxIDE('vscode', formData.name);
+            if (sourcePrice?.gpu) {
+              refetchPrice();
+            }
+            setStartedTemplate(undefined);
+            router.push(`/devbox/detail/${formData.name}`);
+          },
+          successMessage: t(applySuccess)
+        }
+      );
+    } else {
+      await executeOperation(() => createDevbox(formData), {
+        onSuccess: () => {
+          track({
+            event: 'deployment_create',
+            module: 'devbox',
+            context: 'app',
+            config: {
+              template_name: startedTemplate?.name || '',
+              template_version: templateList.find((t) => t.uid === formData.templateUid)?.name || ''
+            },
+            resources: {
+              cpu_cores: formData.cpu,
+              ram_mb: formData.memory
+            }
+          });
+          addDevboxIDE('vscode', formData.name);
+          if (sourcePrice?.gpu) {
+            refetchPrice();
+          }
+          setStartedTemplate(undefined);
+          router.push(`/devbox/detail/${formData.name}`);
+        },
+        successMessage: t(applySuccess)
+      });
+    }
   };
 
   const submitError = useCallback(() => {
@@ -300,6 +289,29 @@ const DevboxCreatePage = () => {
     toast.error(deepSearch(formHook.formState.errors));
   }, [formHook.formState.errors, t]);
 
+  const formData = formHook.watch();
+  const quotaRequirements = useMemo(
+    () => ({
+      cpu: isEdit ? formData.cpu - (oldDevboxEditData.current?.cpu ?? 0) : formData.cpu,
+      memory: isEdit ? formData.memory - (oldDevboxEditData.current?.memory ?? 0) : formData.memory,
+      gpu: 0,
+      nodeport: 0,
+      traffic: true
+    }),
+    [formData, isEdit]
+  );
+
+  const handleApply = useQuotaGuarded(
+    {
+      requirements: quotaRequirements,
+      immediate: false,
+      allowContinue: false
+    },
+    () => {
+      formHook.handleSubmit((data) => openConfirm(() => submitSuccess(data))(), submitError)();
+    }
+  );
+
   if (isLoading) return <Loading />;
 
   return (
@@ -310,29 +322,9 @@ const DevboxCreatePage = () => {
             yamlList={yamlList}
             title={title}
             applyBtnText={applyBtnText}
-            applyCb={() => {
-              const formData = formHook.getValues();
-              const exceededQuotaItems = userStore.checkExceededQuotas({
-                cpu: isEdit ? formData.cpu - (oldDevboxEditData.current?.cpu ?? 0) : formData.cpu,
-                memory: isEdit
-                  ? formData.memory - (oldDevboxEditData.current?.memory ?? 0)
-                  : formData.memory,
-                gpu: 0,
-                nodeport: 0,
-                ...(userStore.session?.subscription?.type === 'PAYG' ? {} : { traffic: 1 })
-              });
-
-              if (exceededQuotaItems.length > 0) {
-                setExceededQuotas(exceededQuotaItems);
-                setExceededDialogOpen(true);
-                return;
-              }
-
-              formHook.handleSubmit(
-                (data) => openConfirm(() => submitSuccess(data))(),
-                submitError
-              )();
-            }}
+            name={captureDevboxName}
+            from={captureFrom as 'list' | 'detail'}
+            applyCb={handleApply}
           />
           <div className="w-full px-5 pt-10 pb-30 md:px-10 lg:px-20">
             {tabType === 'form' ? (
@@ -348,18 +340,11 @@ const DevboxCreatePage = () => {
         </div>
       </FormProvider>
       <ConfirmChild />
-      <InsufficientQuotaDialog
-        open={exceededDialogOpen}
-        onOpenChange={(open) => {
-          userStore.loadUserQuota();
-          setExceededDialogOpen(open);
-        }}
-        onConfirm={() => {
-          setExceededDialogOpen(false);
-          // formHook.handleSubmit((data) => openConfirm(() => submitSuccess(data))(), submitError)();
-        }}
-        items={exceededQuotas}
-        showFooter={false}
+      <ErrorModal
+        isOpen={errorModalState.isOpen}
+        onClose={closeErrorModal}
+        errorCode={errorModalState.errorCode}
+        errorMessage={errorModalState.errorMessage}
       />
     </>
   );

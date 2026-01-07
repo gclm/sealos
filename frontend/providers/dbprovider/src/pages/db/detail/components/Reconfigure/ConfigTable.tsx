@@ -1,11 +1,19 @@
 import MyIcon from '@/components/Icon';
-import { PARAMETER_CONFIG_OVERRIDES, DBTypeEnum } from '@/constants/db';
+import { DBTypeEnum } from '@/constants/db';
 import { ParameterConfigField } from '@/types/db';
 import { I18nCommonKey } from '@/types/i18next';
-import { Box, Flex, Input, InputGroup, InputLeftElement, Select, Text } from '@chakra-ui/react';
+import { Box, Flex, Input, InputGroup, InputLeftElement, Text } from '@chakra-ui/react';
 import { useTranslation } from 'next-i18next';
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState
+} from 'react';
 import { useFieldArray, useForm, useWatch } from 'react-hook-form';
+import { MySelect } from '@sealos/ui';
 
 export interface ConfigItem {
   key: string;
@@ -14,6 +22,7 @@ export interface ConfigItem {
   isEdited: boolean;
   originalIndex: number;
   field?: ParameterConfigField;
+  editable?: boolean;
 }
 
 export interface ConfigTableRef {
@@ -38,32 +47,12 @@ const ConfigTable = forwardRef<
   const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Map to field type and do overrides.
   const configItems = useMemo(() => {
-    const overrides = PARAMETER_CONFIG_OVERRIDES[dbType] || [];
-    const overrideMap = new Map<string, ParameterConfigField>();
-    overrides.forEach((field) => {
-      overrideMap.set(field.name, field);
-    });
-
-    return initialData.map((item) => {
-      const override = overrideMap.get(item.key);
-      if (override) {
-        return {
-          ...item,
-          field: override
-        };
-      }
-
-      return {
-        ...item,
-        field: {
-          name: item.key,
-          type: 'string'
-        } as ParameterConfigField
-      };
-    });
-  }, [initialData, dbType]);
+    return initialData.map((item) => ({
+      ...item,
+      editable: item.editable !== undefined ? item.editable : false // Not editable by default
+    }));
+  }, [initialData]);
 
   const { register, watch, setValue, control, reset } = useForm<{ configs: ConfigItem[] }>({
     defaultValues: {
@@ -113,7 +102,7 @@ const ConfigTable = forwardRef<
     setValue(`configs.${index}.isEditing`, false);
   };
 
-  const getChangedConfigs = (): Difference[] => {
+  const getChangedConfigs = useCallback((): Difference[] => {
     const currentConfigs = watchFieldArray;
     return currentConfigs.reduce((acc, config, index) => {
       if (config.value !== configItems[index].value) {
@@ -125,7 +114,7 @@ const ConfigTable = forwardRef<
       }
       return acc;
     }, [] as Difference[]);
-  };
+  }, [watchFieldArray, configItems]);
 
   const watchedConfigs = useWatch({
     control,
@@ -135,7 +124,7 @@ const ConfigTable = forwardRef<
   useEffect(() => {
     const differences = getChangedConfigs();
     onDifferenceChange(differences.length > 0);
-  }, [watchedConfigs]);
+  }, [getChangedConfigs, onDifferenceChange, watchedConfigs]);
 
   useImperativeHandle(ref, () => ({
     submit: () => {
@@ -187,21 +176,16 @@ const ConfigTable = forwardRef<
             {item.isEditing ? (
               <>
                 {field?.type === 'enum' && (
-                  <Select
-                    autoFocus
+                  <MySelect
+                    width={'120px'}
                     value={item.value}
-                    maxWidth={'240px'}
-                    onBlur={() => handleBlur(item.originalIndex)}
-                    onChange={(e) => {
-                      setValue(`configs.${item.originalIndex}.value`, e.target.value);
+                    list={enumValues.map((val) => ({ label: val, value: val }))}
+                    onchange={(val: string) => {
+                      setValue(`configs.${item.originalIndex}.value`, val);
+                      handleBlur(item.originalIndex);
                     }}
-                  >
-                    {enumValues.map((val) => (
-                      <option key={val} value={val}>
-                        {val}
-                      </option>
-                    ))}
-                  </Select>
+                    isDisabled={item.editable === false}
+                  />
                 )}
 
                 {field?.type === 'string' && (
@@ -209,6 +193,7 @@ const ConfigTable = forwardRef<
                     {...register(`configs.${item.originalIndex}.value`)}
                     autoFocus
                     onBlur={() => handleBlur(item.originalIndex)}
+                    isDisabled={item.editable === false}
                   />
                 )}
               </>
@@ -217,14 +202,16 @@ const ConfigTable = forwardRef<
                 <Text maxW={'300px'} color={item.isEdited ? 'red.500' : 'grayModern.600'}>
                   {item.value}
                 </Text>
-                <MyIcon
-                  onClick={() => toggleEdit(item.originalIndex)}
-                  cursor={'pointer'}
-                  name={'edit'}
-                  w={'16px'}
-                  h={'16px'}
-                  color={'grayModern.600'}
-                />
+                {item.editable !== false && (
+                  <MyIcon
+                    onClick={() => toggleEdit(item.originalIndex)}
+                    cursor={'pointer'}
+                    name={'edit'}
+                    w={'16px'}
+                    h={'16px'}
+                    color={'grayModern.600'}
+                  />
+                )}
               </Flex>
             )}
           </Flex>

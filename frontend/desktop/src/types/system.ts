@@ -23,6 +23,7 @@ export type CommonConfigType = {
   applaunchpadUrl: string;
   dbproviderUrl: string;
   trackingEnabled: boolean;
+  licenseCheckEnabled?: boolean;
 };
 export type CommonClientConfigType = DeepRequired<
   Omit<
@@ -70,6 +71,14 @@ export type LayoutConfigType = {
   title: string;
   logo: string;
   backgroundImage: string;
+  authTitle?: {
+    zh: string;
+    en: string;
+  };
+  authBackgroundImage?: {
+    zh: string;
+    en: string;
+  };
   meta: MetaConfigType;
   customerServiceURL?: string;
   discordInviteLink?: string;
@@ -84,6 +93,10 @@ export type LayoutConfigType = {
     aiAssistantEnabled: boolean;
     bannerEnabled: boolean;
     subscriptionEnabled: boolean;
+    guestModeEnabled?: boolean;
+    emailAlertEnabled: boolean;
+    phoneAlertEnabled: boolean;
+    announcementEnabled: boolean;
   };
   gtmId: string | null;
 };
@@ -145,11 +158,11 @@ export type AuthConfigType = {
       authURL: string;
       tokenURL: string;
       userInfoURL: string;
+      displayName?: string;
     };
     sms?: {
       enabled: boolean;
       ali?: {
-        enabled: boolean;
         endpoint: string;
         templateCode: string;
         signName: string;
@@ -187,9 +200,6 @@ export type AuthClientConfigType = {
   idp: {
     sms: {
       enabled: boolean;
-      ali: {
-        enabled: boolean;
-      };
     };
     email: {
       enabled: boolean;
@@ -278,7 +288,8 @@ export const DefaultCommonClientConfig: CommonClientConfigType = {
   realNameReward: 0,
   guideEnabled: false,
   rechargeEnabled: false,
-  cfSiteKey: ''
+  cfSiteKey: '',
+  licenseCheckEnabled: false
 };
 
 export const DefaultCloudConfig: CloudConfigType = {
@@ -317,7 +328,11 @@ export const DefaultLayoutConfig: LayoutConfigType = {
     accountSettingEnabled: false,
     aiAssistantEnabled: false,
     bannerEnabled: false,
-    subscriptionEnabled: false
+    subscriptionEnabled: false,
+    guestModeEnabled: false,
+    emailAlertEnabled: false,
+    phoneAlertEnabled: false,
+    announcementEnabled: false
   },
   gtmId: null
 };
@@ -348,10 +363,7 @@ export const DefaultAuthClientConfig: AuthClientConfigType = {
       proxyAddress: ''
     },
     sms: {
-      enabled: false,
-      ali: {
-        enabled: false
-      }
+      enabled: false
     },
     email: {
       enabled: false
@@ -363,7 +375,8 @@ export const DefaultAuthClientConfig: AuthClientConfigType = {
       authURL: '',
       tokenURL: '',
       userInfoURL: '',
-      proxyAddress: ''
+      proxyAddress: '',
+      displayName: ''
     }
   },
   billingToken: '',

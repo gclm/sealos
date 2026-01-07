@@ -26,11 +26,12 @@ type ResourceType =
   | 'minio'
   | 'infra-cpu'
   | 'infra-memory'
-  | 'infra-disk'
-  | 'services.nodeports';
+  | 'infra-disk';
 
 type GpuNodeType = {
   'gpu.count': number;
+  'gpu.available': number;
+  'gpu.used': number;
   'gpu.memory': number;
   'gpu.product': string;
   'gpu.alias': string;
@@ -42,8 +43,7 @@ const valuationMap: Record<string, number> = {
   cpu: 1000,
   memory: 1024,
   storage: 1024,
-  gpu: 1000,
-  ['services.nodeports']: 1
+  gpu: 1000
 };
 
 export async function GET(req: NextRequest) {
@@ -67,14 +67,13 @@ export async function GET(req: NextRequest) {
 
     const [priceResponse, gpuNodes] = await Promise.all([
       getResourcePrice() as Promise<ResourcePriceType['data']['properties']>,
-      GPU_ENABLE ? getGpuNode() : Promise.resolve([])
+      GPU_ENABLE === 'true' ? getGpuNode() : Promise.resolve([])
     ]);
 
     const data: userPriceType = {
       cpu: countSourcePrice(priceResponse, 'cpu'),
       memory: countSourcePrice(priceResponse, 'memory'),
-      nodeports: countSourcePrice(priceResponse, 'services.nodeports'),
-      gpu: GPU_ENABLE ? countGpuSource(priceResponse, gpuNodes) : undefined
+      gpu: GPU_ENABLE === 'true' ? countGpuSource(priceResponse, gpuNodes) : undefined
     };
 
     return jsonRes({
@@ -92,22 +91,54 @@ async function getGpuNode() {
 
   try {
     const kc = K8sApiDefault();
-    const { body } = await kc.makeApiClient(CoreV1Api).readNamespacedConfigMap(gpuCrName, gpuCrNS);
-    const gpuMap = body?.data?.gpu;
+    const api = kc.makeApiClient(CoreV1Api);
 
-    if (!gpuMap || !body?.data?.alias) return [];
-    const alias = (JSON.parse(body?.data?.alias) || {}) as Record<string, string>;
+    /*
+     * Use listNamespacedConfigMap with fieldSelector instead of readNamespacedConfigMap
+     * to bypass Kubernetes API Server watch cache stale data issue.
+     *
+     * Root cause: For infrequently updated resources like ConfigMap, the API Server's
+     * watch cache may not receive timely progress notifications from etcd, causing
+     * readNamespacedConfigMap to return stale cached data even after backend updates.
+     *
+     * Solution: listNamespacedConfigMap with fieldSelector forces a more consistent read
+     * path that is less susceptible to watch cache staleness, ensuring we get the latest
+     * ConfigMap data without needing to restart the pod.
+     *
+     * References:
+     * - https://github.com/kubernetes/enhancements/blob/master/keps/sig-api-machinery/2340-Consistent-reads-from-cache/README.md
+     * - https://kubernetes.io/blog/2025/09/09/kubernetes-v1-34-snapshottable-api-server-cache/
+     */
+    const { body } = await api.listNamespacedConfigMap(
+      gpuCrNS,
+      undefined,
+      undefined,
+      undefined,
+      `metadata.name=${gpuCrName}`
+    );
+
+    if (!body.items || body.items.length === 0) return [];
+
+    const configMap = body.items[0];
+    const gpuMap = configMap.data?.gpu;
+
+    if (!gpuMap || !configMap.data?.alias) return [];
+    const alias = (JSON.parse(configMap.data.alias) || {}) as Record<string, string>;
 
     const parseGpuMap = JSON.parse(gpuMap) as Record<
       string,
       {
         'gpu.count': string;
+        'gpu.available': string;
+        'gpu.used': string;
         'gpu.memory': string;
         'gpu.product': string;
+        'gpu.devbox': string;
       }
     >;
-
-    const gpuValues = Object.values(parseGpuMap).filter((item) => item['gpu.product']);
+    const gpuValues = Object.values(parseGpuMap).filter(
+      (item) => item['gpu.product'] && item['gpu.devbox'] === 'true'
+    );
 
     const gpuList: GpuNodeType[] = [];
 
@@ -116,9 +147,13 @@ async function getGpuNode() {
       const index = gpuList.findIndex((gpu) => gpu['gpu.product'] === item['gpu.product']);
       if (index > -1) {
         gpuList[index]['gpu.count'] += Number(item['gpu.count']);
+        gpuList[index]['gpu.available'] += Number(item['gpu.available']);
+        gpuList[index]['gpu.used'] += Number(item['gpu.used']);
       } else {
         gpuList.push({
           ['gpu.count']: +item['gpu.count'],
+          ['gpu.available']: +item['gpu.available'],
+          ['gpu.used']: +item['gpu.used'],
           ['gpu.memory']: +item['gpu.memory'],
           ['gpu.product']: item['gpu.product'],
           ['gpu.alias']: alias[item['gpu.product']] || item['gpu.product']
@@ -147,7 +182,8 @@ function countGpuSource(rawData: ResourcePriceType['data']['properties'], gpuNod
       alias: gpuNode['gpu.alias'],
       type: gpuNode['gpu.product'],
       price: (item.unit_price * valuationMap.gpu) / PRICE_SCALE,
-      inventory: +gpuNode['gpu.count'],
+      available: +gpuNode['gpu.available'],
+      count: +gpuNode['gpu.count'],
       vm: +gpuNode['gpu.memory'] / 1024
     });
   });

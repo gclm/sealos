@@ -26,10 +26,7 @@ import { useMessage } from '@sealos/ui';
 import { ResponseCode } from '@/types/response';
 import { useGuideStore } from '@/store/guide';
 import { useSystemConfigStore } from '@/store/config';
-import { ExceededWorkspaceQuotaItem } from '@/types/workspace';
-import { useUserStore } from '@/store/user';
-import useSessionStore from '@/store/session';
-import { InsufficientQuotaDialog } from '@/components/InsufficientQuotaDialog';
+import { useQuotaGuarded } from '@sealos/shared';
 
 const ErrorModal = dynamic(() => import('./components/ErrorModal'));
 const Header = dynamic(() => import('./components/Header'), { ssr: false });
@@ -63,20 +60,6 @@ export default function EditApp({
   const { setCached, cached, insideCloud, deleteCached, setInsideCloud } = useCachedStore();
   const { setEnvs } = useSystemConfigStore();
   const { setAppType } = useSearchStore();
-  const { loadUserQuota, checkExceededQuotas } = useUserStore();
-  const { getSession } = useSessionStore();
-
-  const [quotaLoaded, setQuotaLoaded] = useState(false);
-  const [exceededQuotas, setExceededQuotas] = useState<ExceededWorkspaceQuotaItem[]>([]);
-  const [exceededDialogOpen, setExceededDialogOpen] = useState(false);
-
-  // load user quota on component mount
-  useEffect(() => {
-    if (quotaLoaded) return;
-
-    loadUserQuota();
-    setQuotaLoaded(true);
-  }, [quotaLoaded, loadUserQuota]);
 
   const detailName = useMemo(
     () => templateSource?.source?.defaults?.app_name?.value || '',
@@ -151,8 +134,20 @@ export default function EditApp({
 
   const { createCompleted } = useGuideStore();
 
-  const handleOutside = useCallback(() => {
+  const handleOutside = useCallback(async () => {
     setCached(JSON.stringify({ ...formHook.getValues(), cachedKey: templateName }));
+
+    // Ensure platformEnvs is loaded
+    let envs = platformEnvs;
+    if (!envs?.DESKTOP_DOMAIN) {
+      try {
+        envs = await getPlatformEnv({ insideCloud });
+        setEnvs(envs);
+      } catch (error) {
+        console.error('Failed to get platform envs:', error);
+        return;
+      }
+    }
 
     const params = new URLSearchParams();
     ['k', 's', 'bd_vid'].forEach((param) => {
@@ -164,7 +159,7 @@ export default function EditApp({
 
     const queryString = params.toString();
 
-    const baseUrl = `https://${platformEnvs?.DESKTOP_DOMAIN}/`;
+    const baseUrl = `https://${envs.DESKTOP_DOMAIN}/`;
     const encodedTemplateQuery = encodeURIComponent(
       `?templateName=${templateName}&sealos_inside=true`
     );
@@ -174,7 +169,7 @@ export default function EditApp({
     }`;
 
     window.open(href, '_self');
-  }, [router, templateName, platformEnvs, setCached, formHook]);
+  }, [router, templateName, platformEnvs, setCached, formHook, insideCloud, setEnvs]);
 
   const handleInside = useCallback(async () => {
     const yamls = yamlList.map((item) => item.value);
@@ -213,7 +208,7 @@ export default function EditApp({
 
     try {
       if (!insideCloud) {
-        handleOutside();
+        await handleOutside();
       } else {
         await handleInside();
       }
@@ -239,25 +234,23 @@ export default function EditApp({
     return usage;
   }, [yamlList]);
 
-  const handleCreateApp = useCallback(() => {
-    // Check quota before creating app
-    const exceededQuotaItems = checkExceededQuotas({
-      cpu: usage.cpu.max,
-      memory: usage.memory.max,
-      nodeport: usage.nodeport,
-      storage: usage.storage.max,
-      ...(getSession().subscription?.type === 'PAYG' ? {} : { traffic: 1 })
-    });
-
-    if (exceededQuotaItems.length > 0) {
-      setExceededQuotas(exceededQuotaItems);
-      setExceededDialogOpen(true);
-      return;
-    } else {
-      setExceededQuotas([]);
+  const handleCreateApp = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: usage.cpu.max,
+        memory: usage.memory.max,
+        nodeport: usage.nodeport,
+        storage: usage.storage.max,
+        traffic: true
+      },
+      immediate: false,
+      allowContinue: false,
+      showRequirements: ['cpu', 'memory', 'nodeport', 'storage']
+    },
+    () => {
       formHook.handleSubmit(openConfirm(submitSuccess), submitError)();
     }
-  }, [checkExceededQuotas, usage, getSession, openConfirm, submitSuccess, submitError, formHook]);
+  );
 
   const parseTemplate = (res: TemplateSourceType) => {
     try {
@@ -422,14 +415,6 @@ export default function EditApp({
       <ConfirmChild />
       <ConfirmChild2 />
       <Loading />
-      <InsufficientQuotaDialog
-        items={exceededQuotas}
-        showControls={false}
-        open={exceededDialogOpen}
-        onOpenChange={setExceededDialogOpen}
-        onConfirm={() => {}}
-        showRequirements={['cpu', 'memory', 'nodeport', 'storage']}
-      />
       {!!errorMessage && (
         <ErrorModal
           title={applyError}

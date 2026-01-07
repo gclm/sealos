@@ -68,15 +68,17 @@ func init() {
 
 func main() {
 	var (
-		metricsAddr          string
-		enableLeaderElection bool
-		probeAddr            string
-		concurrent           int
-		development          bool
-		rateLimiterOptions   = &utils.LimiterOptions{}
-		leaseDuration        time.Duration
-		renewDeadline        time.Duration
-		retryPeriod          time.Duration
+		metricsAddr              string
+		enableLeaderElection     bool
+		probeAddr                string
+		concurrent               int
+		deleteResourceConcurrent int
+		deleteBackupConcurrent   int
+		development              bool
+		rateLimiterOptions       = &utils.LimiterOptions{}
+		leaseDuration            time.Duration
+		renewDeadline            time.Duration
+		retryPeriod              time.Duration
 	)
 	flag.StringVar(
 		&metricsAddr,
@@ -95,6 +97,18 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.IntVar(&concurrent, "concurrent", 100, "The number of concurrent cluster reconciles.")
+	flag.IntVar(
+		&deleteResourceConcurrent,
+		"delete-resource-concurrent",
+		3,
+		"The number of concurrent DeleteUserResource calls.",
+	)
+	flag.IntVar(
+		&deleteBackupConcurrent,
+		"delete-backup-concurrent",
+		30,
+		"The maximum number of concurrent backup deletions.",
+	)
 	flag.DurationVar(
 		&leaseDuration,
 		"leader-elect-lease-duration",
@@ -257,6 +271,16 @@ func main() {
 		SkipExpiredUserTimeDuration: skipExpiredUserTimeDuration,
 	}
 	debtController.Init()
+
+	// Setup OperationRequest monitor controller to trigger debt status refresh on owner transfers
+	operationRequestMonitor := &controllers.OperationRequestMonitorReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}
+	if err = operationRequestMonitor.SetupWithManager(mgr); err != nil {
+		setupManagerError(err, "OperationRequestMonitor")
+	}
+
 	// if err = (&controllers.DebtReconciler{
 	//	AccountReconciler:           accountReconciler,
 	//	Client:                      mgr.GetClient(),
@@ -320,15 +344,16 @@ func main() {
 	if err = (&controllers.NamespaceReconciler{
 		Client: watchClient,
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr, rateOpts); err != nil {
+	}).SetupWithManager(mgr, rateOpts, deleteResourceConcurrent, deleteBackupConcurrent); err != nil {
 		setupManagerError(err, "Namespace")
 	}
 
 	if err = (&controllers.PaymentReconciler{
-		Account:     accountReconciler,
-		WatchClient: watchClient,
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
+		Account:        accountReconciler,
+		DebtReconciler: debtController,
+		WatchClient:    watchClient,
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupManagerError(err, "Payment")
 	}

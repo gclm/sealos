@@ -8,6 +8,7 @@ import { DBStatusEnum, DBTypeList } from '@/constants/db';
 import { applistDriverObj, startDriver } from '@/hooks/driver';
 import { useClientSideValue } from '@/hooks/useClientSideValue';
 import { useConfirm } from '@/hooks/useConfirm';
+import { useDBOperation } from '@/hooks/useDBOperation';
 import UpdateModal from '@/pages/db/detail/components/UpdateModal';
 import useEnvStore from '@/store/env';
 import { useGlobalStore } from '@/store/global';
@@ -66,12 +67,10 @@ import {
   ModalFooter
 } from '@chakra-ui/react';
 import { setDBRemark } from '@/api/db';
-import { WorkspaceQuotaItem } from '@/types/workspace';
-import { useQuery } from '@tanstack/react-query';
-import { useUserStore } from '@/store/user';
-import { InsufficientQuotaDialog } from '@/components/InsufficientQuotaDialog';
+import { useQuotaGuarded } from '@sealos/shared';
 
 const DelModal = dynamic(() => import('@/pages/db/detail/components/DelModal'));
+const ErrorModal = dynamic(() => import('@/components/ErrorModal'));
 
 const DBList = ({
   dbList = [],
@@ -87,8 +86,13 @@ const DBList = ({
   const { message: toast } = useMessage();
   const theme = useTheme();
   const router = useRouter();
+  const {
+    executeOperation,
+    loading: operationLoading,
+    errorModalState,
+    closeErrorModal
+  } = useDBOperation();
   const { SystemEnv } = useEnvStore();
-  const { loadUserQuota, checkExceededQuotas, session } = useUserStore();
   const {
     isOpen: isOpenUpdateModal,
     onOpen: onOpenUpdateModal,
@@ -103,137 +107,81 @@ const DBList = ({
   const [delAppName, setDelAppName] = useState('');
   const [updateAppName, setUpdateAppName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [quotaLoaded, setQuotaLoaded] = useState(false);
-  const [exceededQuotas, setExceededQuotas] = useState<WorkspaceQuotaItem[]>([]);
-  const [exceededDialogOpen, setExceededDialogOpen] = useState(false);
 
   const { openConfirm: onOpenPause, ConfirmChild: PauseChild } = useConfirm({
     content: t('pause_hint')
   });
 
-  // load user quota on component mount
-  useEffect(() => {
-    if (quotaLoaded) return;
-
-    loadUserQuota();
-    setQuotaLoaded(true);
-  }, [quotaLoaded, loadUserQuota]);
-
   useEffect(() => {
     console.log('alerts', alerts);
   }, []);
 
-  const handleCreateApp = useCallback(() => {
-    // Check quota before creating app
-    const exceededQuotaItems = checkExceededQuotas({
-      cpu: 1,
-      memory: 1,
-      nodeport: 1,
-      storage: 1,
-      ...(session?.subscription?.type === 'PAYG' ? {} : { traffic: 1 })
-    });
-
-    if (exceededQuotaItems.length > 0) {
-      setExceededQuotas(exceededQuotaItems);
-      setExceededDialogOpen(true);
-      return;
-    } else {
-      setExceededQuotas([]);
+  const handleCreateApp = useQuotaGuarded(
+    {
+      requirements: {
+        cpu: 1,
+        memory: 1,
+        nodeport: 1,
+        storage: 1,
+        traffic: true
+      },
+      immediate: false,
+      allowContinue: true
+    },
+    () => {
       track('module_view', {
         module: 'database',
         view_name: 'create_form'
       });
       router.push('/db/edit');
     }
-  }, [checkExceededQuotas, router, session]);
+  );
 
   const handleRestartApp = useCallback(
     async (db: DBListItemType) => {
-      try {
-        setLoading(true);
-        await restartDB({ dbName: db.name, dbType: db.dbType });
-        toast({
-          title: t('restart_success'),
-          status: 'success'
-        });
-      } catch (error: any) {
-        toast({
-          title: typeof error === 'string' ? error : error.message || t('restart_error'),
-          status: 'error'
-        });
-        console.error(error, '==restart error==');
-
-        track('error_occurred', {
-          module: 'database',
-          error_code: 'RESTART_ERROR'
-        });
-      }
-      setLoading(false);
+      await executeOperation(() => restartDB({ dbName: db.name, dbType: db.dbType }), {
+        successMessage: t('restart_success'),
+        errorMessage: t('db_operation_failed'),
+        eventName: 'deployment_restart'
+      });
     },
-    [setLoading, t, toast]
+    [executeOperation, t]
   );
 
   const handlePauseApp = useCallback(
     async (db: DBListItemType) => {
-      try {
-        setLoading(true);
-        await pauseDBByName({ dbName: db.name, dbType: db.dbType });
-        toast({
-          title: t('pause_success'),
-          status: 'success'
-        });
-      } catch (error: any) {
-        toast({
-          title: typeof error === 'string' ? error : error.message || t('pause_error'),
-          status: 'error'
-        });
-        console.error(error);
-
-        track('error_occurred', {
-          module: 'database',
-          error_code: 'PAUSE_ERROR'
-        });
+      const result = await executeOperation(
+        () => pauseDBByName({ dbName: db.name, dbType: db.dbType }),
+        {
+          successMessage: t('pause_success'),
+          errorMessage: t('pause_error'),
+          eventName: 'deployment_shutdown'
+        }
+      );
+      if (result !== null) {
+        setTimeout(() => {
+          refetchApps();
+        }, 3000);
       }
-      setLoading(false);
-      setTimeout(() => {
-        refetchApps();
-      }, 3000);
     },
-    [refetchApps, setLoading, t, toast]
+    [executeOperation, refetchApps, t]
   );
 
   const handleStartApp = useCallback(
     async (db: DBListItemType) => {
-      try {
-        setLoading(true);
-        await startDBByName({ dbName: db.name, dbType: db.dbType });
-
-        track({
-          event: 'deployment_start',
-          module: 'database',
-          context: 'app'
-        });
-
-        toast({
-          title: t('start_success'),
-          status: 'success'
-        });
-      } catch (error: any) {
-        toast({
-          title: typeof error === 'string' ? error : error.message || t('start_error'),
-          status: 'error'
-        });
-        console.error(error);
-
-        track('error_occurred', {
-          module: 'database',
-          error_code: 'START_ERROR'
-        });
+      const result = await executeOperation(
+        () => startDBByName({ dbName: db.name, dbType: db.dbType }),
+        {
+          successMessage: t('start_success'),
+          errorMessage: t('start_error'),
+          eventName: 'deployment_start'
+        }
+      );
+      if (result !== null) {
+        refetchApps();
       }
-      setLoading(false);
-      refetchApps();
     },
-    [refetchApps, setLoading, t, toast]
+    [executeOperation, refetchApps, t]
   );
 
   const { getDataSourceId, setDataSourceId } = useDBStore();
@@ -901,23 +849,14 @@ const DBList = ({
           onCloseUpdateModal();
         }}
       />
-      <InsufficientQuotaDialog
-        items={exceededQuotas}
-        open={exceededDialogOpen}
-        onOpenChange={(open) => {
-          // Refresh quota on open change
-          loadUserQuota();
-          setExceededDialogOpen(open);
-        }}
-        onConfirm={() => {
-          setExceededDialogOpen(false);
-          track('module_view', {
-            module: 'database',
-            view_name: 'create_form'
-          });
-          router.push('/db/edit');
-        }}
-      />
+      {errorModalState.visible && (
+        <ErrorModal
+          title={errorModalState.title}
+          content={errorModalState.content}
+          errorCode={errorModalState.errorCode}
+          onClose={closeErrorModal}
+        />
+      )}
     </Box>
   );
 };

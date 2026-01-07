@@ -82,6 +82,11 @@ func RegisterPayRouter() {
 		POST(helper.GetRechargeDiscount, api.GetRechargeDiscount).
 		POST(helper.GetUserRealNameInfo, api.GetUserRealNameInfo).
 		POST(helper.WorkspaceGetResourceQuota, api.GetWorkspaceResourceQuota).
+		// UserAlertNotificationAccount routes
+		POST(helper.UserAlertNotificationAccountCreate, api.CreateUserAlertNotificationAccount).
+		POST(helper.UserAlertNotificationAccountList, api.ListUserAlertNotificationAccounts).
+		POST(helper.UserAlertNotificationAccountDelete, api.DeleteUserAlertNotificationAccount).
+		POST(helper.UserAlertNotificationAccountToggle, api.ToggleUserAlertNotificationAccounts).
 		// WorkspaceSubscription routes
 		POST(helper.WorkspaceSubscriptionInfo, api.GetWorkspaceSubscriptionInfo).
 		POST(helper.WorkspaceSubscriptionList, api.GetWorkspaceSubscriptionList).
@@ -93,7 +98,10 @@ func RegisterPayRouter() {
 		POST(helper.WorkspaceSubscriptionPay, api.CreateWorkspaceSubscriptionPay).
 		POST(helper.WorkspaceSubscriptionNotify, api.NewWorkspaceSubscriptionNotifyHandler).
 		POST(helper.WorkspaceSubscriptionPortalSession, api.CreateWorkspaceSubscriptionPortalSession).
-		POST(helper.WorkspaceSubscriptionPlans, api.GetWorkspaceSubscriptionPlans)
+		POST(helper.WorkspaceSubscriptionPlans, api.GetWorkspaceSubscriptionPlans).
+		POST(helper.WorkspaceSubscriptionCardManage, api.CreateWorkspaceSubscriptionSetupIntent).
+		POST(helper.WorkspaceSubscriptionCardInfo, api.GetWorkspaceSubscriptionCardInfo).
+		POST(helper.WorkspaceSubscriptionInvoiceCancel, api.CancelWorkspaceSubscriptionInvoice)
 	adminGroup := router.Group(helper.AdminGroup).
 		GET(helper.AdminGetAccountWithWorkspace, api.AdminGetAccountWithWorkspaceID).
 		GET(helper.AdminGetUserRealNameInfo, api.AdminGetUserRealNameInfo).

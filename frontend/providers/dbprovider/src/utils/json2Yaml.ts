@@ -641,31 +641,68 @@ export const json2NetworkService = ({
     pulsar: 6650,
     clickhouse: 8123
   };
-  const labelMap = {
+  const labelMap: Record<
+    // [FIXME] Remove this union after KB 0.9 upgrade!
+    DBType | 'mysql',
+    Record<string, Record<string, string>> & { default: Record<string, string> }
+  > = {
     postgresql: {
-      'kubeblocks.io/role': 'primary'
+      default: {
+        'kubeblocks.io/role': 'primary'
+      }
     },
     mongodb: {
-      'kubeblocks.io/role': 'primary'
+      default: {
+        'kubeblocks.io/role': 'primary'
+      }
     },
     'apecloud-mysql': {
-      'kubeblocks.io/role': 'leader'
+      default: {
+        'kubeblocks.io/role': 'leader'
+      }
+    },
+    mysql: {
+      default: {
+        'kubeblocks.io/role': 'primary',
+        'apps.kubeblocks.io/component-name': 'mysql'
+      }
     },
     redis: {
-      'kubeblocks.io/role': 'primary'
+      default: {
+        'kubeblocks.io/role': 'primary'
+      }
     },
     kafka: {
-      'apps.kubeblocks.io/component-name': 'kafka-broker'
+      default: {
+        'apps.kubeblocks.io/component-name': 'kafka-broker'
+      }
     },
-    qdrant: {},
-    nebula: {},
-    weaviate: {},
+    qdrant: {
+      default: {}
+    },
+    nebula: {
+      default: {}
+    },
+    weaviate: {
+      default: {}
+    },
     milvus: {
-      'apps.kubeblocks.io/component-name': 'milvus'
+      default: {
+        'apps.kubeblocks.io/component-name': 'milvus'
+      }
     },
-    pulsar: {},
-    clickhouse: {}
+    pulsar: {
+      default: {}
+    },
+    clickhouse: {
+      default: {}
+    }
   };
+
+  const labels =
+    Object.entries(labelMap[dbDetail.rawDbType]).find(
+      ([version]) => version === dbDetail.dbVersion
+    )?.[1] ?? labelMap[dbDetail.rawDbType].default;
 
   const template = {
     apiVersion: 'v1',
@@ -676,7 +713,7 @@ export const json2NetworkService = ({
         'app.kubernetes.io/instance': dbDetail.dbName,
         'app.kubernetes.io/managed-by': 'kubeblocks',
         'apps.kubeblocks.io/component-name': dbDetail.dbType,
-        ...labelMap[dbDetail.dbType]
+        ...labels
       },
       ownerReferences: [
         {
@@ -701,7 +738,7 @@ export const json2NetworkService = ({
       selector: {
         'app.kubernetes.io/instance': dbDetail.dbName,
         'app.kubernetes.io/managed-by': 'kubeblocks',
-        ...labelMap[dbDetail.dbType]
+        ...labels
       },
       type: 'NodePort'
     }
@@ -731,6 +768,7 @@ export const json2Reconfigure = (
         ...configParams.reduce((acc, param) => ({ ...acc, [param.path]: param.newValue }), {})
       },
       annotations: {
+        // For displaying previous value.
         [DBPreviousConfigKey]: JSON.stringify(
           configParams.reduce((acc, param) => ({ ...acc, [param.path]: param.oldValue }), {})
         )
@@ -925,6 +963,7 @@ export const json2ParameterConfig = (
     timeZone?: string;
     lowerCaseTableNames?: string;
     isMaxConnectionsCustomized?: boolean;
+    maxmemory?: string;
   },
   dynamicMaxConnections?: number
 ) => {
@@ -1094,11 +1133,11 @@ export const json2ParameterConfig = (
     if (parameterConfig?.timeZone) {
       mysqlParams['default-time-zone'] = String(parameterConfig.timeZone);
     }
-    const lowerCaseTableNames = parameterConfig?.lowerCaseTableNames
-      ? parameterConfig.lowerCaseTableNames
-      : '1';
 
-    mysqlParams['lower_case_table_names'] = String(lowerCaseTableNames);
+    // Do not automatically set a value for (existing) databases.
+    if (parameterConfig?.lowerCaseTableNames) {
+      mysqlParams['lower_case_table_names'] = String(parameterConfig.lowerCaseTableNames);
+    }
 
     // Check if this is MySQL 5.7.42 version
     if (dbVersion === 'mysql-5.7.42') {
@@ -1301,6 +1340,10 @@ export const json2ParameterConfig = (
 
     if (maxConnections) {
       redisParams['maxclients'] = String(maxConnections);
+    }
+
+    if (parameterConfig?.maxmemory) {
+      redisParams['maxmemory'] = String(parameterConfig.maxmemory);
     }
 
     const replicationItem: any = {

@@ -18,17 +18,19 @@ import { cn } from '@sealos/shadcn-ui';
 import { useEnvStore } from '@/stores/env';
 import { useGuideStore } from '@/stores/guide';
 import { IDEType, useIDEStore } from '@/stores/ide';
-import { getSSHConnectionInfo } from '@/api/devbox';
+import { getSSHConnectionInfo, getDevboxPorts, updateDevboxWebIDEPort } from '@/api/devbox';
 import { DevboxStatusMapType } from '@/types/devbox';
 import { destroyDriver, startDriver, startConnectIDE } from '@/hooks/driver';
 
 import ToolboxDrawer from './drawers/ToolboxDrawer';
+import ZedDrawer from './drawers/ZedDrawer';
 import JetBrainsGuideDrawer from './drawers/JetbrainsGuideDrawer';
 import { useClientSideValue } from '@/hooks/useClientSideValue';
 import { usePathname } from '@/i18n';
 import { track } from '@sealos/gtm';
+import { useConfirm } from '@/hooks/useConfirm';
 
-export interface JetBrainsGuideData {
+export interface SSHConnectionData {
   devboxName: string;
   runtimeType: string;
   privateKey: string;
@@ -41,7 +43,7 @@ export interface JetBrainsGuideData {
 }
 
 interface MenuItem {
-  value: IDEType;
+  value: IDEType | string;
   menuLabel: string;
   group?: string;
   options?: { value: IDEType; menuLabel: string }[];
@@ -76,11 +78,19 @@ const IDEButton = memo(
 
     const [loading, setLoading] = useState(false);
     const [onOpenToolboxDrawer, setOnOpenToolboxDrawer] = useState(false);
+    const [onOpenZedDrawer, setOnOpenZedDrawer] = useState(false);
     const [onOpenJetbrainsModal, setOnOpenJetbrainsModal] = useState(false);
-    const [jetbrainsGuideData, setJetBrainsGuideData] = useState<JetBrainsGuideData>();
+    const [sshConnectionData, setSSHConnectionData] = useState<SSHConnectionData>();
 
     const currentIDE = getDevboxIDEByDevboxName(devboxName) as IDEType;
     const { guideIDE, setGuideIDE } = useGuideStore();
+
+    const { openConfirm, ConfirmChild } = useConfirm({
+      title: 'prompt',
+      content: 'webide_fee_warning',
+      confirmText: 'confirm',
+      cancelText: 'cancel'
+    });
 
     const handleGotoIDE = useCallback(
       async (currentIDE: IDEType = 'cursor') => {
@@ -96,16 +106,48 @@ const IDEButton = memo(
 
         setLoading(true);
 
-        // TODO: Add a reminder: If you haven't opened it for a long time, please check whether the corresponding IDE is installed.
-        if (currentIDE !== 'gateway' && currentIDE !== 'toolbox') toast.info(t('opening_ide'));
+        if (
+          currentIDE !== 'gateway' &&
+          currentIDE !== 'toolbox' &&
+          currentIDE !== 'webide' &&
+          currentIDE !== 'zed'
+        )
+          toast.info(t('opening_ide'));
 
         try {
+          if (currentIDE === 'webide') {
+            const portsResponse = await getDevboxPorts(devboxName);
+            const existingPorts = portsResponse.ports || [];
+            const port9999 = existingPorts.find((p) => p.number === 9999);
+
+            if (port9999 && port9999.exposesPublicDomain && port9999.publicDomain) {
+              const webIDEUrl = `https://${port9999.publicDomain}/?folder=/home/devbox/project`;
+              window.open(webIDEUrl, '_blank');
+              return;
+            }
+
+            const executeWebIDE = async () => {
+              toast.info('Creating Web IDE network...');
+              const response = await updateDevboxWebIDEPort(devboxName, 9999);
+
+              if (response.publicDomain) {
+                const webIDEUrl = `https://${response.publicDomain}/?folder=/home/devbox/project`;
+                window.open(webIDEUrl, '_blank');
+              } else {
+                toast.error('Failed to create Web IDE network');
+              }
+            };
+
+            openConfirm(executeWebIDE)();
+            return;
+          }
+
           const { base64PrivateKey, userName, workingDir, token } = await getSSHConnectionInfo({
             devboxName
           });
           const sshPrivateKey = Buffer.from(base64PrivateKey, 'base64').toString('utf-8');
 
-          setJetBrainsGuideData({
+          setSSHConnectionData({
             devboxName,
             runtimeType,
             privateKey: sshPrivateKey,
@@ -123,6 +165,9 @@ const IDEButton = memo(
           } else if (currentIDE === 'toolbox') {
             setOnOpenToolboxDrawer(true);
             return;
+          } else if (currentIDE === 'zed') {
+            setOnOpenZedDrawer(true);
+            return;
           }
 
           const idePrefix = ideObj[currentIDE].prefix;
@@ -136,11 +181,21 @@ const IDEButton = memo(
           window.location.href = fullUri;
         } catch (error: any) {
           console.error(error, '==');
+          toast.error(error?.message || 'Failed to open IDE');
         } finally {
           setLoading(false);
         }
       },
-      [t, devboxName, runtimeType, env.sealosDomain, env.namespace, sshPort, setGuideIDE]
+      [
+        t,
+        devboxName,
+        runtimeType,
+        env.sealosDomain,
+        env.namespace,
+        sshPort,
+        setGuideIDE,
+        openConfirm
+      ]
     );
 
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -248,8 +303,8 @@ const IDEButton = memo(
                           currentIDE === item.value && 'text-zinc-900'
                         )}
                         onClick={() => {
-                          updateDevboxIDE(item.value, devboxName);
-                          handleGotoIDE(item.value);
+                          updateDevboxIDE(item.value as IDEType, devboxName);
+                          handleGotoIDE(item.value as IDEType);
                         }}
                       >
                         <div className="flex items-center gap-1.5">
@@ -270,7 +325,7 @@ const IDEButton = memo(
                 <div className="mx-1.5 w-px bg-gray-200"></div>
                 {/* right column */}
                 <div className="h-20 w-[230px] space-y-1">
-                  {rightColumnItems.map((item) =>
+                  {getRightColumnItems(env.currencySymbol, env.enableWebideFeature).map((item) =>
                     item.group ? (
                       <div key={item.value} className="flex gap-1">
                         {item.options?.map((option, index) => (
@@ -312,8 +367,8 @@ const IDEButton = memo(
                           currentIDE === item.value && 'text-zinc-900'
                         )}
                         onClick={() => {
-                          updateDevboxIDE(item.value, devboxName);
-                          handleGotoIDE(item.value);
+                          updateDevboxIDE(item.value as IDEType, devboxName);
+                          handleGotoIDE(item.value as IDEType);
                         }}
                       >
                         <div className="flex items-center gap-1.5">
@@ -334,22 +389,30 @@ const IDEButton = memo(
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {!!jetbrainsGuideData && (
+          {!!sshConnectionData && (
             <JetBrainsGuideDrawer
               open={onOpenJetbrainsModal}
               onSuccess={() => {}}
               onClose={() => setOnOpenJetbrainsModal(false)}
-              jetbrainsGuideData={jetbrainsGuideData}
+              sshConnectionData={sshConnectionData}
             />
           )}
-          {!!jetbrainsGuideData && (
+          {!!sshConnectionData && (
             <ToolboxDrawer
               open={onOpenToolboxDrawer}
               onClose={() => setOnOpenToolboxDrawer(false)}
-              jetbrainsGuideData={jetbrainsGuideData}
+              sshConnectionData={sshConnectionData}
+            />
+          )}
+          {!!sshConnectionData && (
+            <ZedDrawer
+              open={onOpenZedDrawer}
+              onClose={() => setOnOpenZedDrawer(false)}
+              sshConnectionData={sshConnectionData}
             />
           )}
         </div>
+        <ConfirmChild />
       </div>
     );
   },
@@ -372,6 +435,10 @@ export const ideObj = {
   vscode: {
     label: 'VSCode',
     prefix: 'vscode://'
+  },
+  webide: {
+    label: 'Online',
+    prefix: '-'
   },
   vscodeInsiders: {
     label: 'Insiders',
@@ -420,67 +487,112 @@ export const ideObj = {
   gateway: {
     label: 'Gateway',
     prefix: '-'
+  },
+  zed: {
+    label: 'Zed',
+    prefix: 'zed://'
+  },
+  antigravity: {
+    label: 'Antigravity',
+    prefix: 'antigravity://'
   }
 } as const;
 
 const getLeftColumnItems = (currencySymbol: string): MenuItem[] => {
-  const baseItems: MenuItem[] = [
+  if (currencySymbol === 'usd') {
+    return [
+      { value: 'zed', menuLabel: 'Zed' },
+      { value: 'antigravity', menuLabel: 'Antigravity' },
+      { value: 'kiro', menuLabel: 'Kiro' },
+      { value: 'windsurf', menuLabel: 'Windsurf' }
+    ];
+  }
+
+  return [
+    { value: 'zed', menuLabel: 'Zed' },
+    { value: 'antigravity', menuLabel: 'Antigravity' },
     { value: 'kiro', menuLabel: 'Kiro' },
     { value: 'qoder', menuLabel: 'Qoder' },
-    { value: 'lingma', menuLabel: 'Lingma' },
     {
-      value: 'trae-group' as IDEType,
+      value: 'trae-group',
       menuLabel: 'Trae',
       group: 'trae',
       options: [
-        { value: 'trae', menuLabel: 'Trae' },
-        { value: 'traeCN', menuLabel: 'CN' }
+        { value: 'trae' as IDEType, menuLabel: 'Trae' },
+        { value: 'traeCN' as IDEType, menuLabel: 'CN' }
       ]
     },
     {
-      value: 'codebuddy-group' as IDEType,
+      value: 'codebuddy-group',
       menuLabel: 'CodeBuddy',
       group: 'codebuddy',
       options: [
-        { value: 'codebuddy', menuLabel: 'CodeBuddy' },
-        { value: 'codebuddyCN', menuLabel: 'CN' }
+        { value: 'codebuddy' as IDEType, menuLabel: 'CodeBuddy' },
+        { value: 'codebuddyCN' as IDEType, menuLabel: 'CN' }
+      ]
+    }
+  ];
+};
+const getRightColumnItems = (
+  currencySymbol: string,
+  enableWebideFeature: string
+): MenuItem[] => {
+  if (currencySymbol === 'usd') {
+    return [
+      { value: 'cursor', menuLabel: 'Cursor' },
+      { value: 'vscode', menuLabel: 'VS Code' },
+      { value: 'vscodeInsiders', menuLabel: 'Insiders' },
+      {
+        value: 'jetbrains-group',
+        menuLabel: 'JetBrains',
+        group: 'jetbrains',
+        options: [
+          { value: 'toolbox' as IDEType, menuLabel: 'Toolbox' },
+          { value: 'gateway' as IDEType, menuLabel: 'Gateway' }
+        ]
+      }
+    ];
+  }
+
+  const vscodeGroup: MenuItem = {
+    value: 'vscode-group',
+    menuLabel: 'VSCode',
+    group: 'vscode',
+    options:
+      enableWebideFeature === 'true'
+        ? [
+            { value: 'vscode' as IDEType, menuLabel: 'VS Code' },
+            { value: 'webide' as IDEType, menuLabel: 'Online' }
+          ]
+        : [{ value: 'vscode' as IDEType, menuLabel: 'VS Code' }]
+  };
+
+  const items: MenuItem[] = [
+    { value: 'cursor', menuLabel: 'Cursor' },
+    vscodeGroup,
+    { value: 'vscodeInsiders', menuLabel: 'Insiders' },
+    { value: 'lingma', menuLabel: 'Lingma' },
+    { value: 'windsurf', menuLabel: 'Windsurf' },
+    {
+      value: 'jetbrains-group',
+      menuLabel: 'JetBrains',
+      group: 'jetbrains',
+      options: [
+        { value: 'toolbox' as IDEType, menuLabel: 'Toolbox' },
+        { value: 'gateway' as IDEType, menuLabel: 'Gateway' }
       ]
     }
   ];
 
-  if (currencySymbol === 'usd') {
-    return baseItems.map((item) => {
-      if (item.options) {
-        const filteredOptions = item.options.filter((option) => !option.value.includes('CN'));
-        // If only one option remains after filtering, flatten the group to a single item
-        if (filteredOptions.length === 1) {
-          return {
-            value: filteredOptions[0].value,
-            menuLabel: filteredOptions[0].menuLabel
-          };
-        }
-        return { ...item, options: filteredOptions };
-      }
-      return item;
-    });
-  }
-
-  return baseItems;
+  return items.map((item) => {
+    if (item.options && item.options.length === 1) {
+      return {
+        value: item.options[0].value,
+        menuLabel: item.options[0].menuLabel
+      };
+    }
+    return item;
+  });
 };
-const rightColumnItems: MenuItem[] = [
-  { value: 'cursor', menuLabel: 'Cursor' },
-  { value: 'vscode', menuLabel: 'VSCode' },
-  { value: 'vscodeInsiders', menuLabel: 'Insiders' },
-  { value: 'windsurf', menuLabel: 'Windsurf' },
-  {
-    value: 'jetbrains-group' as IDEType,
-    menuLabel: 'JetBrains',
-    group: 'jetbrains',
-    options: [
-      { value: 'toolbox', menuLabel: 'Toolbox' },
-      { value: 'gateway', menuLabel: 'Gateway' }
-    ]
-  }
-];
 
 export default IDEButton;
