@@ -1,12 +1,13 @@
 import { getWorkspaceQuota } from '@/api/platform';
 import AppWindow from '@/components/app_window';
-import useAppStore from '@/stores/app';
+import useAppStore, { BRAIN_APP_KEY, SESSION_RESTORE_APP_KEY } from '@/stores/app';
 import { useConfigStore } from '@/stores/config';
 import { useDesktopConfigStore } from '@/stores/desktopConfig';
 import { WindowSize } from '@/types';
 import { Box, Flex, Image, Button, Text } from '@chakra-ui/react';
 import { useTranslation } from 'next-i18next';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createMasterAPP, masterApp } from 'sealos-desktop-sdk/master';
 import { ChakraIndicator } from './ChakraIndicator';
@@ -40,6 +41,7 @@ export const blurBackgroundStyles = {
 
 export default function Desktop() {
   const { t } = useTranslation();
+  const router = useRouter();
   const { isAppBar } = useDesktopConfigStore();
   const {
     installedApps: apps,
@@ -48,7 +50,8 @@ export default function Desktop() {
     setToHighestLayerById,
     closeAppById,
     setAutoLaunch,
-    currentAppKey
+    currentAppKey,
+    autolaunch
   } = useAppStore();
   const backgroundImage = useConfigStore().layoutConfig?.backgroundImage;
   const { backgroundImage: desktopBackgroundImage } = useAppDisplayConfigStore();
@@ -59,6 +62,7 @@ export default function Desktop() {
     useSessionStore();
   const { commonConfig } = useConfigStore();
   const realNameAuthNotificationIdRef = useRef<string | number | undefined>();
+  const prevRestoreAppKeyRef = useRef<string>('');
   const [isClient, setIsClient] = useState(false);
   const [isRestoring, setIsRestoring] = useState(true);
   const guideModal = useGuideModalStore();
@@ -67,15 +71,53 @@ export default function Desktop() {
     setIsClient(true);
   }, []);
 
-  // Restore current app after page refresh
   useEffect(() => {
-    if (!isClient || apps.length === 0) {
+    if (!isClient) return;
+
+    const prevKey = prevRestoreAppKeyRef.current;
+    prevRestoreAppKeyRef.current = currentAppKey;
+
+    if (!currentAppKey) {
+      if (!isRestoring && prevKey) {
+        sessionStorage.removeItem(SESSION_RESTORE_APP_KEY);
+      }
       return;
     }
 
-    if (currentAppKey) {
-      const savedApp = apps.find((app) => app.key === currentAppKey);
-      const isAppRunning = runningInfo.some((app) => app.key === currentAppKey);
+    if (currentAppKey === BRAIN_APP_KEY) {
+      sessionStorage.removeItem(SESSION_RESTORE_APP_KEY);
+      return;
+    }
+
+    sessionStorage.setItem(SESSION_RESTORE_APP_KEY, currentAppKey);
+  }, [isClient, currentAppKey, isRestoring]);
+
+  // Restore current app after page refresh
+  useEffect(() => {
+    if (!isClient) {
+      return;
+    }
+
+    // openapp/autolaunch has higher priority than restore
+    if (router.isReady) {
+      const hasOpenAppQuery = Object.hasOwn(router.query, 'openapp');
+      const isStripeCallback = router.query?.stripeState === 'success' && !!router.query?.payId;
+      if (hasOpenAppQuery || !!autolaunch || isStripeCallback) {
+        setIsRestoring(false);
+        return;
+      }
+    }
+
+    if (apps.length === 0) {
+      return;
+    }
+
+    const sessionRestoreKey = sessionStorage.getItem(SESSION_RESTORE_APP_KEY) || '';
+    const restoreAppKey = currentAppKey || sessionRestoreKey;
+
+    if (restoreAppKey) {
+      const savedApp = apps.find((app) => app.key === restoreAppKey);
+      const isAppRunning = runningInfo.some((app) => app.key === restoreAppKey);
 
       if (savedApp && !isAppRunning) {
         openApp(savedApp).then(() => {
@@ -88,7 +130,16 @@ export default function Desktop() {
 
     // No app to restore or app already running
     setIsRestoring(false);
-  }, [currentAppKey, apps, runningInfo, openApp, isClient]);
+  }, [
+    router.isReady,
+    router.query,
+    autolaunch,
+    currentAppKey,
+    apps,
+    runningInfo,
+    openApp,
+    isClient
+  ]);
 
   const infoData = useQuery({
     queryFn: UserInfo,

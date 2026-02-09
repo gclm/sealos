@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -302,6 +303,19 @@ func main() {
 		setupLog.Info("disable all webhooks")
 	} else {
 		mgr.GetWebhookServer().Register("/validate-v1-sealos-cloud", &webhook.Admission{Handler: &accountv1.DebtValidate{Client: mgr.GetClient(), AccountV2: v2Account, TTLUserMap: maps.New[*types.UsableBalanceWithCredits](env.GetIntEnvWithDefault("DEBT_WEBHOOK_CACHE_USER_TTL", 15))}})
+		// Start HTTP server for property reload handler (without TLS)
+		jwtSecret := os.Getenv("ACCOUNT_API_JWT_SECRET")
+		reloadHandler := &controllers.PropertyReloadHandler{
+			AccountReconciler: accountReconciler,
+			DBClient:          dbClient,
+			JwtSecret:         jwtSecret,
+		}
+		go func() {
+			setupLog.Info("starting property reload HTTP server", "port", 9444)
+			if err := http.ListenAndServe(":9444", reloadHandler); err != nil {
+				setupLog.Error(err, "failed to start property reload HTTP server")
+			}
+		}()
 	}
 
 	err = dbClient.InitDefaultPropertyTypeLS()
@@ -362,21 +376,6 @@ func main() {
 		setupLog.Error(err, "unable to connect to traffic mongo")
 		os.Exit(1)
 	}
-	var userTrafficMonitor *controllers.UserTrafficMonitor
-	if os.Getenv(controllers.EnvSubscriptionEnabled) == "true" {
-		userTrafficCtrl := controllers.NewUserTrafficController(accountReconciler, trafficDBClient)
-		go userTrafficCtrl.ProcessTrafficWithTimeRange()
-		if env.GetEnvWithDefault("SUPPORT_MONITOR_USER_TRAFFIC", "false") == _true {
-			userTrafficMonitor, err = controllers.NewUserTrafficMonitor(userTrafficCtrl)
-			if err != nil {
-				setupLog.Error(err, "unable to create user traffic monitor")
-				os.Exit(1)
-			}
-			userTrafficMonitor.Start()
-		}
-	} else {
-		setupLog.Info("skip user traffic controller")
-	}
 	workspaceTrafficProcessor := controllers.NewWorkspaceTrafficController(
 		accountReconciler,
 		trafficDBClient,
@@ -392,12 +391,6 @@ func main() {
 	go workspaceTrafficProcessor.ProcessTrafficWithTimeRange()
 	// workspaceSubscriptionProcessor.Start(ctx)
 	workspaceSubDebtProcessor.Start(ctx)
-
-	defer func() {
-		if userTrafficMonitor != nil {
-			userTrafficMonitor.Stop()
-		}
-	}()
 
 	//+kubebuilder:scaffold:builder
 

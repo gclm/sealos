@@ -17,6 +17,7 @@ export interface Env {
   privacyUrlZH: string;
   privacyUrlEN: string;
   sealosDomain: string;
+  sshDomain: string;
   ingressSecret: string;
   registryAddr: string;
   devboxAffinityEnable: string;
@@ -27,8 +28,11 @@ export interface Env {
   storageLimit: string;
   enableImportFeature: string;
   enableWebideFeature: string;
+  enableAdvancedConfig: string;
   cpuSlideMarkList: string;
   memorySlideMarkList: string;
+  nfsStorageClassName: string;
+  webIdePort: number;
 }
 
 export interface RuntimeTypeMap {

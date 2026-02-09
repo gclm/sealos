@@ -10,6 +10,9 @@ import { useDesktopConfigStore } from './desktopConfig';
 import { track } from '@sealos/gtm';
 import useSessionStore from './session';
 
+export const BRAIN_APP_KEY = 'system-brain';
+export const SESSION_RESTORE_APP_KEY = 'sealos_desktop_restore_app_key';
+
 export class AppInfo {
   pid: number;
   isShow: boolean;
@@ -68,6 +71,8 @@ const useAppStore = create<TOSState>()(
         launchQuery: {},
         autolaunch: '',
         autolaunchWorkspaceUid: '',
+        autoDeployTemplate: '',
+        autoDeployTemplateForm: undefined as Record<string, any> | undefined,
         runner: new AppStateManager([]),
         async init() {
           const { isGuest } = useSessionStore.getState();
@@ -298,15 +303,40 @@ const useAppStore = create<TOSState>()(
             state.launchQuery = {};
             state.autolaunchWorkspaceUid = '';
           });
+        },
+        setAutoDeployTemplate(templateName: string, templateForm: Record<string, any>) {
+          set((state) => {
+            state.autoDeployTemplate = templateName;
+            state.autoDeployTemplateForm = templateForm;
+          });
+        },
+        cancelAutoDeployTemplate: () => {
+          set((state) => {
+            state.autoDeployTemplate = '';
+            state.autoDeployTemplateForm = undefined;
+          });
         }
       })),
       {
         name: 'app',
+        version: 1,
+        migrate(persistedState: any) {
+          if (persistedState?.currentAppKey && persistedState.currentAppKey !== BRAIN_APP_KEY) {
+            return {
+              ...persistedState,
+              currentAppKey: ''
+            };
+          }
+          return persistedState;
+        },
         partialize(state) {
           return {
             launchQuery: state.launchQuery,
             autolaunch: state.autolaunch,
-            currentAppKey: state.currentAppKey
+            autoDeployTemplate: state.autoDeployTemplate,
+            autoDeployTemplateForm: state.autoDeployTemplateForm,
+            // Only Brain can persist across tab close; other apps should rely on sessionStorage.
+            currentAppKey: state.currentAppKey === BRAIN_APP_KEY ? state.currentAppKey : ''
           };
         }
       }

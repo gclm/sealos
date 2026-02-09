@@ -37,10 +37,13 @@
   "avatar": "头像",
   "balance_popover": {
     "balance": "余额",
+    "cancelled_notice": "您的订阅已取消。资源将在 {{date}} 后删除。请及时备份数据或恢复订阅以避免损失。",
     "check_costcenter_tip": "到费用中心查看详细信息",
     "expired_at": "过期时间：",
+    "expires_on": "到期时间：",
     "payg_plan": "按量付费",
     "plan_suffix": "套餐",
+    "renew_subscription_button": "恢复订阅",
     "subscription_status": {
       "expired": "过期",
       "limited_trial": "限时试用"
@@ -88,6 +91,7 @@
   "completed": "完成",
   "completed_the_deployment_of_an_nginx_for_the_first_time": "部署一个 nginx ，首次完成 将",
   "confirm": "确认",
+  "copy": "复制",
   "confirm_again": "再次确认",
   "confirmnewpassword": "确认新密码",
   "contact_info": "联系方式 (手机号码)",
@@ -217,8 +221,10 @@
   "name_of_team": "工作空间名称",
   "nav_links": {
     "balance": "余额",
+    "cancelled": "已取消",
     "plan_expired": "已过期",
     "plan_suffix": "套餐",
+    "renew": "续费",
     "subscribe": "订阅套餐",
     "upgrade_plan": "升级"
   },
@@ -289,6 +295,7 @@
   "recharge_amount": "充值金额",
   "redirecting_to_homepage_in_3_seconds": "3秒后跳回主页",
   "refresh_qr_code": "刷新二维码",
+  "regenerate_link": "重新生成",
   "region": "可用区",
   "reject": "拒绝",
   "remain_app_tips": "您的账户中仍有未删除的应用资源，为了帮助您顺利完成账户注销流程，请您手动删除所有应用资源，以避免数据丢失",
@@ -438,5 +445,9 @@
       "update_success": "更新成功",
       "update_failed": "更新失败"
     }
-  }
+  },
+  "refresh_kubeconfig": "刷新 Kubeconfig",
+  "kubeconfig_rotating": "正在刷新 Kubeconfig...",
+  "kubeconfig_rotated_successfully": "Kubeconfig 刷新成功",
+  "kubeconfig_rotation_failed": "Kubeconfig 刷新失败"
 }

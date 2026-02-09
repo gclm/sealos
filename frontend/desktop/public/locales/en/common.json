@@ -38,10 +38,13 @@
   "avatar": "Avatar",
   "balance_popover": {
     "balance": "Balance",
+    "cancelled_notice": "Your subscription is cancelled. Resources will be deleted after {{date}}. Please back up your data or renew to avoid loss.",
     "check_costcenter_tip": "Check more details in Cost Center",
     "expired_at": "Expired At:",
+    "expires_on": "Expires on:",
     "payg_plan": "PAYG",
     "plan_suffix": "Plan",
+    "renew_subscription_button": "Renew subscription",
     "subscription_status": {
       "expired": "Expired",
       "limited_trial": "Limited Trial"
@@ -89,6 +92,7 @@
   "completed_the_deployment_of_an_nginx_for_the_first_time": "Completed a deployment of nginx for the first time",
   "confirm": "Confirm",
   "confirm_again": "confirm again",
+  "copy": "Copy",
   "confirmnewpassword": "Confirm New Password",
   "contact_info": "Phone Number",
   "contact_info_must_be_numeric": "It must be a numeric string",
@@ -222,8 +226,10 @@
   "name_of_team": "Name of Workspace",
   "nav_links": {
     "balance": "Balance",
+    "cancelled": "Cancelled",
     "plan_expired": "Expired",
     "plan_suffix": "Plan",
+    "renew": "Renew",
     "subscribe": "Subscribe",
     "upgrade_plan": "Upgrade"
   },
@@ -294,6 +300,7 @@
   "recharge_amount": "Recharge Amount",
   "redirecting_to_homepage_in_3_seconds": "Redirecting to homepage in 3 seconds",
   "refresh_qr_code": "Refresh the QR code",
+  "regenerate_link": "Regenerate",
   "region": "Region",
   "reject": "Reject",
   "remain_app_tips": "There are still undeleted application resources in your account. Please backup any important data and manually delete all application resources.",
@@ -446,5 +453,9 @@
       "update_success": "Updated successfully",
       "update_failed": "Failed to update"
     }
-  }
+  },
+  "refresh_kubeconfig": "Refresh Kubeconfig",
+  "kubeconfig_rotating": "Rotating Kubeconfig...",
+  "kubeconfig_rotated_successfully": "Kubeconfig refreshed successfully",
+  "kubeconfig_rotation_failed": "Failed to refresh Kubeconfig"
 }
