@@ -19,6 +19,7 @@ declare -A images=(
   ["ghcr.io/gclm/sealos-cloud-template-frontend:latest"]="frontend-template.tar"
   ["ghcr.io/gclm/sealos-cloud-license-frontend:latest"]="frontend-license.tar"
   ["ghcr.io/gclm/sealos-cloud-cronjob-frontend:latest"]="frontend-cronjob.tar"
+  ["ghcr.io/gclm/sealos-cloud-kubepanel-frontend:latest"]="frontend-kubepanel.tar"
 
   # services
   ["ghcr.io/gclm/sealos-cloud-database-service:latest"]="database-service.tar"
