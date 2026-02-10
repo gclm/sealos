@@ -27,3 +27,4 @@ deploy/cloud/tars
 **.env*
 !scripts/cloud/sealos.env
 **/helloagents/**
+

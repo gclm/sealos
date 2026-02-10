@@ -1,35 +1,17 @@
-name: 孤城落寞版 Release Cloud
+name: All Sealos Cloud 孤城落寞版
 
 on:
-  workflow_call:
-    inputs:
-      tag:
-        description: "Tag for manual release"
-        required: false
-        default: ""
-        type: string
-      build_offline_tar_only:
-        description: "Build offline tar only"
-        required: false
-        default: false
-        type: boolean
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag for manual release"
+        description: "镜像标签（留空则使用 latest）"
         required: false
-        default: ""
+        default: "latest"
         type: string
-      build_offline_tar_only:
-        description: "Build offline tar only"
-        required: false
-        default: false
-        type: boolean
 
 env:
   # Common versions
-  GO_VERSION: "1.20"
-  DEFAULT_OWNER: "labring"
+  GO_VERSION: "1.25"
 
 permissions:
   contents: write
@@ -38,40 +20,48 @@ permissions:
 
 jobs:
   release-controllers:
-    if: ${{ inputs.build_offline_tar_only == false }}
     uses: ./.github/workflows/controllers.yml
     with:
       push_image: true
-      push_image_tag: ${{ inputs.tag }}
+      push_image_tag: ${{ inputs.tag || 'latest' }}
       disable_cilint: true
+      force_all: true
     secrets: inherit
 
   release-frontends:
-    if: ${{ inputs.build_offline_tar_only == false }}
     uses: ./.github/workflows/frontends.yml
     with:
       push_image: true
-      push_image_tag: ${{ inputs.tag }}
+      push_image_tag: ${{ inputs.tag || 'latest' }}
+      force_all: true
     secrets: inherit
 
   release-service:
-    if: ${{ inputs.build_offline_tar_only == false }}
     uses: ./.github/workflows/services.yml
     with:
       push_image: true
-      push_image_tag: ${{ inputs.tag }}
+      push_image_tag: ${{ inputs.tag || 'latest' }}
+      disable_cilint: true
+      force_all: true
+    secrets: inherit
+
+  release-webhook:
+    uses: ./.github/workflows/webhooks.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag || 'latest' }}
       disable_cilint: true
     secrets: inherit
 
   release-cloud:
-    if: ${{ inputs.build_offline_tar_only == false }}
     needs:
       - release-controllers
       - release-frontends
       - release-service
+      - release-webhook
     uses: ./.github/workflows/cloud.yml
     with:
       push_image: true
-      push_image_tag: ${{ inputs.tag }}
-      build_from: ${{ inputs.tag }}
+      push_image_tag: ${{ inputs.tag || 'latest' }}
+      build_from: ${{ inputs.tag || 'latest' }}
     secrets: inherit
