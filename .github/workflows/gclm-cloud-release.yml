@@ -53,6 +53,18 @@ jobs:
       disable_cilint: true
     secrets: inherit
 
+  release-objectstorage:
+    needs:
+      - release-controllers
+      - release-frontends
+      - release-service
+    uses: ./.github/workflows/objectstorage.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag || 'latest' }}
+      build_from: ${{ inputs.tag || 'latest' }}
+    secrets: inherit
+
   release-cloud:
     needs:
       - release-controllers
