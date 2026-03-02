@@ -1,0 +1,79 @@
+name: All Sealos Cloud 孤城落寞版
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "镜像标签（留空自动生成不可变标签）"
+        required: false
+        default: "latest"
+        type: string
+
+env:
+  # Common versions
+  GO_VERSION: "1.25"
+
+permissions:
+  contents: write
+  actions: write
+  packages: write
+
+jobs:
+  release-controllers:
+    uses: ./.github/workflows/controllers.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+      disable_cilint: true
+      force_all: true
+    secrets: inherit
+
+  release-frontends:
+    uses: ./.github/workflows/frontends.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+      force_all: true
+    secrets: inherit
+
+  release-service:
+    uses: ./.github/workflows/services.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+      disable_cilint: true
+      force_all: true
+    secrets: inherit
+
+  release-webhook:
+    uses: ./.github/workflows/webhooks.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+      disable_cilint: true
+    secrets: inherit
+
+  release-objectstorage:
+    needs:
+      - release-controllers
+      - release-frontends
+      - release-service
+    uses: ./.github/workflows/objectstorage.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+      build_from: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+    secrets: inherit
+
+  release-cloud:
+    needs:
+      - release-controllers
+      - release-frontends
+      - release-service
+      - release-webhook
+    uses: ./.github/workflows/cloud.yml
+    with:
+      push_image: true
+      push_image_tag: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+      build_from: ${{ inputs.tag != '' && inputs.tag || format('gclm-{0}', github.run_id) }}
+    secrets: inherit

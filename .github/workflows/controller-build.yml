@@ -164,7 +164,7 @@ jobs:
             ${{ env.GHCR_REPO }}
             ${{ env.ALIYUN_REPO }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') || (inputs.push_image == true && inputs.push_image_tag == 'latest') }}
             type=raw,value=${{ inputs.push_image_tag }},enable=${{ inputs.push_image_tag != '' && inputs.push_image_tag != 'latest' }}
             type=ref,event=branch
             type=ref,event=tag
@@ -219,7 +219,7 @@ jobs:
             ${{ env.GHCR_CLUSTER_REPO }}
             ${{ env.ALIYUN_CLUSTER_REPO }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') || (inputs.push_image == true && inputs.push_image_tag == 'latest') }}
             type=raw,value=${{ inputs.push_image_tag }},enable=${{ inputs.push_image_tag != '' && inputs.push_image_tag != 'latest' }}
             type=ref,event=branch
             type=ref,event=tag
@@ -239,23 +239,29 @@ jobs:
           OLD_DOCKER_REPO: ${{ env.OLD_DOCKER_REPO }}
           GHCR_DOCKER_REPO: ${{ env.GHCR_DOCKER_REPO }}
         run: |
+          replace_images_in_deploy() {
+            local new_docker_image="$1"
+            local pattern="(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*"
+
+            if [[ -d manifests ]]; then
+              while IFS= read -r -d '' file; do
+                sed -i -E "s;${pattern};${new_docker_image};g" "$file"
+              done < <(find manifests -type f -print0)
+            fi
+
+            if [[ -d charts ]]; then
+              while IFS= read -r -d '' file; do
+                sed -i -E "s;${pattern};${new_docker_image};g" "$file"
+              done < <(find charts -type f -print0)
+            fi
+          }
+
           # Build cluster images for each tag (amd64)
           for TAG in $DOCKER_METADATA_OUTPUT_TAGS; do
             IMAGE_TAG="${TAG##*:}"
             NEW_DOCKER_IMAGE="${GHCR_DOCKER_REPO}:${IMAGE_TAG}"
             echo "Updating deploy files to: ${NEW_DOCKER_IMAGE}"
-            if [[ -d manifests ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" manifests/*
-            fi
-            if [[ -f charts/${MODULE_PATH}/values.yaml ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" charts/${MODULE_PATH}/values.yaml
-            fi
-            if [[ -f charts/${MODULE_NAME}/values.yaml ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" charts/${MODULE_NAME}/values.yaml
-            fi
-            if [[ -f charts/${MODULE_NAME}-controller/values.yaml ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" charts/${MODULE_NAME}-controller/values.yaml
-            fi
+            replace_images_in_deploy "${NEW_DOCKER_IMAGE}"
             sudo rm -rf registry
             echo "Building ${TAG}-amd64"
             sudo sealos build -t "${TAG}-amd64" --platform linux/amd64 -f Kubefile
@@ -265,18 +271,7 @@ jobs:
           for TAG in $DOCKER_METADATA_OUTPUT_TAGS; do
             IMAGE_TAG="${TAG##*:}"
             NEW_DOCKER_IMAGE="${GHCR_DOCKER_REPO}:${IMAGE_TAG}"
-            if [[ -d manifests ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" manifests/*
-            fi
-            if [[ -f charts/${MODULE_PATH}/values.yaml ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" charts/${MODULE_PATH}/values.yaml
-            fi
-            if [[ -f charts/${MODULE_NAME}/values.yaml ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" charts/${MODULE_NAME}/values.yaml
-            fi
-            if [[ -f charts/${MODULE_NAME}-controller/values.yaml ]]; then
-              sed -i -E "s;(${OLD_DOCKER_REPO}|${GHCR_DOCKER_REPO}):[^[:space:]\"']*;${NEW_DOCKER_IMAGE};" charts/${MODULE_NAME}-controller/values.yaml
-            fi
+            replace_images_in_deploy "${NEW_DOCKER_IMAGE}"
             sudo rm -rf registry
             echo "Building ${TAG}-arm64"
             sudo sealos build -t "${TAG}-arm64" --platform linux/arm64 -f Kubefile

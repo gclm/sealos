@@ -1,31 +1,40 @@
 #!/bin/bash
 set -e
 
+REGISTRY_DOMAIN="${REGISTRY_DOMAIN:-ghcr.io}"
+REPOSITORY_OWNER="${REPOSITORY_OWNER:-labring}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+
+image_ref() {
+  echo "${REGISTRY_DOMAIN}/${REPOSITORY_OWNER}/$1:${IMAGE_TAG}"
+}
+
 declare -A images=(
   # controllers
-  ["ghcr.io/labring/sealos-cloud-user-controller:latest"]="user.tar"
-  ["ghcr.io/labring/sealos-cloud-terminal-controller:latest"]="terminal.tar"
-  ["ghcr.io/labring/sealos-cloud-app-controller:latest"]="app.tar"
-  ["ghcr.io/labring/sealos-cloud-resources-controller:latest"]="monitoring.tar"
-  ["ghcr.io/labring/sealos-cloud-account-controller:latest"]="account.tar"
-  ["ghcr.io/labring/sealos-cloud-license-controller:latest"]="license.tar"
+  ["$(image_ref sealos-cloud-user-controller)"]="user.tar"
+  ["$(image_ref sealos-cloud-terminal-controller)"]="terminal.tar"
+  ["$(image_ref sealos-cloud-app-controller)"]="app.tar"
+  ["$(image_ref sealos-cloud-resources-controller)"]="monitoring.tar"
+  ["$(image_ref sealos-cloud-account-controller)"]="account.tar"
+  ["$(image_ref sealos-cloud-license-controller)"]="license.tar"
 
   # frontends
-  ["ghcr.io/labring/sealos-cloud-desktop-frontend:latest"]="frontend-desktop.tar"
-  ["ghcr.io/labring/sealos-cloud-terminal-frontend:latest"]="frontend-terminal.tar"
-  ["ghcr.io/labring/sealos-cloud-applaunchpad-frontend:latest"]="frontend-applaunchpad.tar"
-  ["ghcr.io/labring/sealos-cloud-dbprovider-frontend:latest"]="frontend-dbprovider.tar"
-  ["ghcr.io/labring/sealos-cloud-costcenter-frontend:latest"]="frontend-costcenter.tar"
-  ["ghcr.io/labring/sealos-cloud-template-frontend:latest"]="frontend-template.tar"
-  ["ghcr.io/labring/sealos-cloud-license-frontend:latest"]="frontend-license.tar"
-  ["ghcr.io/labring/sealos-cloud-cronjob-frontend:latest"]="frontend-cronjob.tar"
+  ["$(image_ref sealos-cloud-desktop-frontend)"]="frontend-desktop.tar"
+  ["$(image_ref sealos-cloud-terminal-frontend)"]="frontend-terminal.tar"
+  ["$(image_ref sealos-cloud-applaunchpad-frontend)"]="frontend-applaunchpad.tar"
+  ["$(image_ref sealos-cloud-dbprovider-frontend)"]="frontend-dbprovider.tar"
+  ["$(image_ref sealos-cloud-costcenter-frontend)"]="frontend-costcenter.tar"
+  ["$(image_ref sealos-cloud-template-frontend)"]="frontend-template.tar"
+  ["$(image_ref sealos-cloud-license-frontend)"]="frontend-license.tar"
+  ["$(image_ref sealos-cloud-cronjob-frontend)"]="frontend-cronjob.tar"
+  ["$(image_ref sealos-cloud-kubepanel-frontend)"]="frontend-kubepanel.tar"
 
   # services
-  ["ghcr.io/labring/sealos-cloud-database-service:latest"]="database-service.tar"
-  ["ghcr.io/labring/sealos-cloud-account-service:latest"]="account-service.tar"
-  ["ghcr.io/labring/sealos-cloud-launchpad-service:latest"]="launchpad-service.tar"
-  ["ghcr.io/labring/sealos-cloud-job-init-controller:latest"]="job-init.tar"
-  ["ghcr.io/labring/sealos-cloud-job-heartbeat-controller:latest"]="job-heartbeat.tar"
+  ["$(image_ref sealos-cloud-database-service)"]="database-service.tar"
+  ["$(image_ref sealos-cloud-account-service)"]="account-service.tar"
+  ["$(image_ref sealos-cloud-launchpad-service)"]="launchpad-service.tar"
+  ["$(image_ref sealos-cloud-job-init-controller)"]="job-init.tar"
+  ["$(image_ref sealos-cloud-job-heartbeat-controller)"]="job-heartbeat.tar"
 )
 
 mkdir -p images/shim

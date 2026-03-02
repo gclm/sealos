@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 readonly ARCH=${1:-amd64}
-mkdir -p tars
+mkdir -p charts tars
 
 RetryPullImageInterval=3
 RetryPullFileInterval=3
@@ -9,11 +9,12 @@ RetrySleepSeconds=3
 
 retryPullFile() {
   local file=$1
+  local output=$2
   local retry=0
   local retryMax=3
   set +e
       while [ $retry -lt $RetryPullFileInterval ]; do
-          curl $file --create-dirs -o ./etc/minio-binaries/mc >/dev/null && break
+          curl -L "$file" --create-dirs -o "$output" >/dev/null && break
           retry=$(($retry + 1))
           echo "retry pull file $file, retry times: $retry"
           sleep $RetrySleepSeconds
@@ -43,11 +44,19 @@ retryPullImage() {
     fi
 }
 
-retryPullImage ghcr.io/labring/sealos-cloud-objectstorage-controller:latest
-retryPullImage ghcr.io/labring/sealos-cloud-objectstorage-frontend:latest
-retryPullImage ghcr.io/labring/sealos-cloud-minio-service:latest
-retryPullFile https://dl.min.io/client/mc/release/linux-amd64/mc
+# Download MinIO Operator Helm chart
+OPERATOR_VERSION="5.0.6"
+OPERATOR_URL="https://raw.githubusercontent.com/minio/operator/master/helm-releases/operator-${OPERATOR_VERSION}.tgz"
+if [ ! -f "charts/operator-${OPERATOR_VERSION}.tgz" ]; then
+  echo "Downloading MinIO Operator Helm chart..."
+  retryPullFile "${OPERATOR_URL}" "charts/operator-${OPERATOR_VERSION}.tgz"
+fi
 
-sealos save -o tars/objectstorage-controller.tar ghcr.io/labring/sealos-cloud-objectstorage-controller:latest
-sealos save -o tars/objectstorage-frontend.tar ghcr.io/labring/sealos-cloud-objectstorage-frontend:latest
-sealos save -o tars/objectstorage-service.tar ghcr.io/labring/sealos-cloud-minio-service:latest
+retryPullImage ghcr.io/gclm/sealos-cloud-objectstorage-controller:latest
+retryPullImage ghcr.io/gclm/sealos-cloud-objectstorage-frontend:latest
+retryPullImage ghcr.io/gclm/sealos-cloud-minio-service:latest
+retryPullFile https://dl.min.io/client/mc/release/linux-amd64/mc ./etc/minio-binaries/mc
+
+sealos save -o tars/objectstorage-controller.tar ghcr.io/gclm/sealos-cloud-objectstorage-controller:latest
+sealos save -o tars/objectstorage-frontend.tar ghcr.io/gclm/sealos-cloud-objectstorage-frontend:latest
+sealos save -o tars/objectstorage-service.tar ghcr.io/gclm/sealos-cloud-minio-service:latest
