@@ -1,0 +1,34 @@
+name: A-GCLM Release Cloud
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Image tag"
+        required: false
+        default: "latest"
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag"
+        required: false
+        default: "latest"
+        type: string
+
+run-name: >-
+  A-GCLM Release Cloud (${{ inputs.tag }})
+
+permissions:
+  contents: write
+  actions: write
+  packages: write
+
+jobs:
+  # Keep the fork delta thin: this workflow is only a custom entrypoint.
+  release:
+    uses: ./.github/workflows/cloud-release.yml
+    with:
+      tag: ${{ inputs.tag }}
+      build_offline_tar_only: false
+    secrets: inherit
